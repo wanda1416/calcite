@@ -974,4 +974,1123 @@ class SqlFunctionsTest {
       // ok
     }
   }
+
+  @Test void testSha256() {
+    assertThat("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        is(sha256("")));
+    assertThat("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        is(sha256(ByteString.of("", 16))));
+    assertThat("a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e",
+        is(sha256("Hello World")));
+    assertThat("a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e",
+        is(sha256(new ByteString("Hello World".getBytes(UTF_8)))));
+    try {
+      String o = sha256((String) null);
+      fail("Expected NPE, got " + o);
+    } catch (NullPointerException e) {
+      // ok
+    }
+  }
+
+  @Test void testSha512() {
+    assertThat("cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5"
+            + "d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e",
+        is(sha512("")));
+    assertThat("cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5"
+            + "d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e",
+        is(sha512(ByteString.of("", 16))));
+    assertThat("2c74fd17edafd80e8447b0d46741ee243b7eb74dd2149a0ab1b9246fb30382f27e853d858"
+            + "5719e0e67cbda0daa8f51671064615d645ae27acb15bfb1447f459b",
+        is(sha512("Hello World")));
+    assertThat("2c74fd17edafd80e8447b0d46741ee243b7eb74dd2149a0ab1b9246fb30382f27e853d858"
+            + "5719e0e67cbda0daa8f51671064615d645ae27acb15bfb1447f459b",
+        is(sha512(new ByteString("Hello World".getBytes(UTF_8)))));
+    try {
+      String o = sha512((String) null);
+      fail("Expected NPE, got " + o);
+    } catch (NullPointerException e) {
+      // ok
+    }
+  }
+
+  @Test void testPosition() {
+    assertThat(position("c", "abcdec"), is(3));
+    assertThat(position("c", "abcdec", 2), is(3));
+    assertThat(position("c", "abcdec", -2), is(3));
+    assertThat(position("c", "abcdec", 4), is(6));
+    assertThat(position("c", "abcdec", 1, 2), is(6));
+    assertThat(position("cde", "abcdecde", -2, 1), is(6));
+    assertThat(position("c", "abcdec", -1, 2), is(3));
+    assertThat(position("f", "abcdec", 1, 1), is(0));
+    assertThat(position("c", "abcdec", 1, 3), is(0));
+    try {
+      int i = position("c", "abcdec", 0, 1);
+      fail("expected error, got: " + i);
+    } catch (CalciteException e) {
+      assertThat(e.getMessage(),
+          is("Invalid input for POSITION function: from operand value must not be zero"));
+    }
+    try {
+      int i = position("c", "abcdec", 1, 0);
+      fail("expected error, got: " + i);
+    } catch (CalciteException e) {
+      assertThat(e.getMessage(),
+          is("Invalid input for POSITION function: occurrence operand value must be positive"));
+    }
+    final ByteString abcdec = ByteString.of("aabbccddeecc", 16);
+    final ByteString c = ByteString.of("cc", 16);
+    final ByteString dec = ByteString.of("ddeecc", 16);
+    final ByteString f = ByteString.of("ff", 16);
+    assertThat(position(c, abcdec), is(3));
+    assertThat(position(c, abcdec, 2), is(3));
+    assertThat(position(c, abcdec, -2), is(3));
+    assertThat(position(c, abcdec, 4), is(6));
+    assertThat(position(dec, abcdec, -2), is(4));
+    assertThat(position(c, abcdec, 1, 2), is(6));
+    assertThat(position(c, abcdec, -1, 2), is(3));
+    assertThat(position(f, abcdec, 1, 1), is(0));
+    assertThat(position(c, abcdec, 1, 3), is(0));
+    try {
+      int i = position(c, abcdec, 0, 1);
+      fail("expected error, got: " + i);
+    } catch (CalciteException e) {
+      assertThat(e.getMessage(),
+          is("Invalid input for POSITION function: from operand value must not be zero"));
+    }
+    try {
+      int i = position(c, abcdec, 1, 0);
+      fail("expected error, got: " + i);
+    } catch (CalciteException e) {
+      assertThat(e.getMessage(),
+          is("Invalid input for POSITION function: occurrence operand value must be positive"));
+    }
+  }
+
+
+  /**
+   * Tests that a date in the local time zone converts to a Unix timestamp in
+   * UTC.
+   */
+  @Test void testToIntWithSqlDate() {
+    assertThat(toInt(new java.sql.Date(0L)), is(0));  // rounded to closest day
+    assertThat(sqlDate("1970-01-01"), is(0));
+    assertThat(sqlDate("1500-04-30"), is(dateStringToUnixDate("1500-04-30")));
+  }
+
+  /**
+   * Test calendar conversion from the standard Gregorian calendar used by
+   * {@code java.sql} and the proleptic Gregorian calendar used by Unix
+   * timestamps.
+   */
+  @Test void testToIntWithSqlDateInGregorianShift() {
+    assertThat(sqlDate("1582-10-04"), is(dateStringToUnixDate("1582-10-04")));
+    assertThat(sqlDate("1582-10-05"), is(dateStringToUnixDate("1582-10-15")));
+    assertThat(sqlDate("1582-10-15"), is(dateStringToUnixDate("1582-10-15")));
+  }
+
+  /**
+   * Test date range 0001-01-01 to 9999-12-31 required by ANSI SQL.
+   *
+   * <p>Java may not be able to represent 0001-01-01 depending on the default
+   * time zone. If the date would fall outside of Anno Domini (AD) when
+   * converted to the default time zone, that date should not be tested.
+   *
+   * <p>Not every time zone has a January 1st 12:00am, so this test skips those
+   * dates.
+   */
+  @Test void testToIntWithSqlDateInAnsiDateRange() {
+    for (int i = 2; i <= 9999; ++i) {
+      final String str = String.format(Locale.ROOT, "%04d-01-01", i);
+      final java.sql.Date date = java.sql.Date.valueOf(str);
+      final Timestamp timestamp = new Timestamp(date.getTime());
+      if (timestamp.toString().endsWith("00:00:00.0")) {
+        // Test equality if the time is valid in Java
+        assertThat("Converts '" + str + "' from SQL to Unix date",
+            toInt(date),
+            is(dateStringToUnixDate(str)));
+      } else {
+        // Test result matches legacy behavior if the time cannot be
+        // represented in Java. This probably results in a different date but
+        // is pretty rare.
+        final long expected =
+            (date.getTime() + DateTimeUtils.DEFAULT_ZONE.getOffset(date.getTime()))
+                / DateTimeUtils.MILLIS_PER_DAY;
+        assertThat("Converts '" + str
+                + "' from SQL to Unix date using legacy behavior",
+            toInt(date),
+            is((int) expected));
+      }
+    }
+  }
+
+  /**
+   * Test using a custom {@link TimeZone} to calculate the Unix timestamp.
+   * Dates created by a {@link java.sql.Date} method should be converted
+   * relative to the local time and not UTC.
+   */
+  @Test public void testToIntWithTimeZone() {
+    // Dates created by a Calendar should be converted to a Unix date in that
+    // time zone
+    final Calendar utcCal =
+        Calendar.getInstance(TimeZone.getTimeZone("UTC"), Locale.ROOT);
+    utcCal.set(1970, Calendar.JANUARY, 1, 0, 0, 0);
+    utcCal.set(Calendar.MILLISECOND, 0);
+    assertThat(
+        toInt(new java.sql.Date(utcCal.getTimeInMillis()),
+            utcCal.getTimeZone()),
+        is(0));
+
+    // Dates should be relative to the local time and not UTC
+    final java.sql.Date epoch = java.sql.Date.valueOf("1970-01-01");
+
+    final TimeZone minusDayZone = TimeZone.getDefault();
+    minusDayZone.setRawOffset((int) (minusDayZone.getRawOffset() - MILLIS_PER_DAY));
+    assertThat(toInt(epoch, minusDayZone), is(-1));
+
+    final TimeZone plusDayZone = TimeZone.getDefault();
+    plusDayZone.setRawOffset((int) (plusDayZone.getRawOffset() + MILLIS_PER_DAY));
+    assertThat(toInt(epoch, plusDayZone), is(1));
+  }
+
+  /**
+   * Tests that a nullable date in the local time zone converts to a Unix
+   * timestamp in UTC.
+   */
+  @Test void testToIntOptionalWithLocalTimeZone() {
+    assertThat(toIntOptional(java.sql.Date.valueOf("1970-01-01")), is(0));
+    assertThat(toIntOptional((java.sql.Date) null), is(nullValue()));
+  }
+
+  /**
+   * Tests that a nullable date in the given time zone converts to a Unix
+   * timestamp in UTC.
+   */
+  @Test void testToIntOptionalWithCustomTimeZone() {
+    final TimeZone utc = TimeZone.getTimeZone("UTC");
+    assertThat(toIntOptional(new java.sql.Date(0L), utc), is(0));
+    assertThat(toIntOptional(null, utc), is(nullValue()));
+  }
+
+  /**
+   * Tests that a time in the local time zone converts to a Unix time in UTC.
+   */
+  @Test void testToIntWithSqlTime() {
+    assertThat(sqlTime("00:00:00"), is(timeStringToUnixDate("00:00:00")));
+    assertThat(sqlTime("23:59:59"), is(timeStringToUnixDate("23:59:59")));
+  }
+
+  /**
+   * Tests that a nullable time in the local time zone converts to a Unix time
+   * in UTC.
+   */
+  @Test void testToIntOptionalWithSqlTime() {
+    assertThat(toIntOptional(Time.valueOf("00:00:00")), is(0));
+    assertThat(toIntOptional((Time) null), is(nullValue()));
+  }
+
+  /**
+   * Tests that a timestamp in the local time zone converts to a Unix timestamp
+   * in UTC.
+   */
+  @Test void testToLongWithSqlTimestamp() {
+    assertThat(sqlTimestamp("1970-01-01 00:00:00"), is(0L));
+    assertThat(sqlTimestamp("2014-09-30 15:28:27.356"),
+        is(timestampStringToUnixDate("2014-09-30 15:28:27.356")));
+    assertThat(sqlTimestamp("1500-04-30 12:00:00.123"),
+        is(timestampStringToUnixDate("1500-04-30 12:00:00.123")));
+  }
+
+  /**
+   * Test using a custom {@link TimeZone} to calculate the Unix timestamp.
+   * Timestamps created by a {@link Calendar} should be converted to a Unix
+   * timestamp in the given time zone. Timestamps created by a {@link Timestamp}
+   * method should be converted relative to the local time and not UTC.
+   */
+  @Test void testToLongWithSqlTimestampAndCustomTimeZone() {
+    final Timestamp epoch = java.sql.Timestamp.valueOf("1970-01-01 00:00:00");
+
+    final Calendar utcCal =
+        Calendar.getInstance(TimeZone.getTimeZone("UTC"), Locale.ROOT);
+    utcCal.set(1970, Calendar.JANUARY, 1, 0, 0, 0);
+    utcCal.set(Calendar.MILLISECOND, 0);
+    assertThat(toLong(new Timestamp(utcCal.getTimeInMillis()), utcCal.getTimeZone()),
+        is(0L));
+
+    final TimeZone est = TimeZone.getTimeZone("GMT-5:00");
+    assertThat(toLong(epoch, est),
+        is(epoch.getTime() + est.getOffset(epoch.getTime())));
+
+    final TimeZone ist = TimeZone.getTimeZone("GMT+5:00");
+    assertThat(toLong(epoch, ist),
+        is(epoch.getTime() + ist.getOffset(epoch.getTime())));
+  }
+
+  /**
+   * Test calendar conversion from the standard Gregorian calendar used by
+   * {@code java.sql} and the proleptic Gregorian calendar used by Unix
+   * timestamps.
+   */
+  @Test void testToLongWithSqlTimestampInGregorianShift() {
+    assertThat(sqlTimestamp("1582-10-04 00:00:00"),
+        is(timestampStringToUnixDate("1582-10-04 00:00:00")));
+    assertThat(sqlTimestamp("1582-10-05 00:00:00"),
+        is(timestampStringToUnixDate("1582-10-15 00:00:00")));
+    assertThat(sqlTimestamp("1582-10-15 00:00:00"),
+        is(timestampStringToUnixDate("1582-10-15 00:00:00")));
+  }
+
+  /**
+   * Test date range 0001-01-01 to 9999-12-31 required by ANSI SQL.
+   *
+   * <p>Java may not be able to represent 0001-01-01 depending on the default
+   * time zone. If the date would fall outside of Anno Domini (AD) when
+   * converted to the default time zone, that date should not be tested.
+   *
+   * <p>Not every time zone has a January 1st 12:00am, so this test skips those
+   * dates.
+   */
+  @Test void testToLongWithSqlTimestampInAnsiDateRange() {
+    for (int i = 2; i <= 9999; ++i) {
+      final String str = String.format(Locale.ROOT, "%04d-01-01 00:00:00", i);
+      final Timestamp timestamp = Timestamp.valueOf(str);
+      if (timestamp.toString().endsWith("00:00:00.0")) {
+        // Test equality if the time is valid in Java
+        assertThat("Converts '" + str + "' from SQL to Unix timestamp",
+            toLong(timestamp),
+            is(timestampStringToUnixDate(str)));
+      } else {
+        // Test result matches legacy behavior if the time cannot be represented in Java
+        // This probably results in a different date but is pretty rare
+        final long expected = timestamp.getTime()
+            + DateTimeUtils.DEFAULT_ZONE.getOffset(timestamp.getTime());
+        assertThat("Converts '" + str
+                + "' from SQL to Unix timestamp using legacy behavior",
+            toLong(timestamp),
+            is(expected));
+      }
+    }
+  }
+
+  /**
+   * Tests that a nullable timestamp in the local time zone converts to a Unix
+   * timestamp in UTC.
+   */
+  @Test void testToLongOptionalWithLocalTimeZone() {
+    assertThat(toLongOptional(Timestamp.valueOf("1970-01-01 00:00:00")), is(0L));
+    assertThat(toLongOptional(null), is(nullValue()));
+  }
+
+  /**
+   * Test date after 0001-01-01 required by ANSI SQL - is passed.
+   * Test date before 0001-01-01 and malformed date time literal - is failed.
+   */
+  @Test void testToTimestampWithLocalTimeZone() {
+    Long ret = toTimestampWithLocalTimeZone("1970-01-01 00:00:01", TimeZone.getTimeZone("UTC"));
+    assertThat(ret, is(1000L));
+
+    ret = toTimestampWithLocalTimeZone("1970-01-01 00:00:01.010", TimeZone.getTimeZone("UTC"));
+    assertThat(ret, is(1010L));
+
+    ret = toTimestampWithLocalTimeZone("1970-01-01 00:00:01 "
+        + TimeZone.getTimeZone("UTC").getID());
+    assertThat(ret, is(1000L));
+
+    // exceptional scenarios
+    try {
+      ret = toTimestampWithLocalTimeZone("malformed", TimeZone.getDefault());
+      fail("expected error, got " + ret);
+    } catch (CalciteException e) {
+      assertThat(e.getMessage(), containsString("Illegal TIMESTAMP WITH LOCAL TIME ZONE literal"));
+    }
+
+    try {
+      ret = toTimestampWithLocalTimeZone("0000-01-01 00:00:01", TimeZone.getDefault());
+      fail("expected error, got " + ret);
+    } catch (CalciteException e) {
+      assertThat(e.getMessage(), containsString("Illegal TIMESTAMP WITH LOCAL TIME ZONE literal"));
+    }
+
+    try {
+      ret = toTimestampWithLocalTimeZone("malformed " + TimeZone.getDefault().getID());
+      fail("expected error, got " + ret);
+    } catch (CalciteException e) {
+      assertThat(e.getMessage(), containsString("Illegal TIMESTAMP WITH LOCAL TIME ZONE literal"));
+    }
+  }
+
+  /**
+   * Tests that a nullable timestamp in the given time zone converts to a Unix
+   * timestamp in UTC.
+   */
+  @Test void testToLongOptionalWithCustomTimeZone() {
+    final TimeZone utc = TimeZone.getTimeZone("UTC");
+    assertThat(toLongOptional(new Timestamp(0L), utc), is(0L));
+    assertThat(toLongOptional(null, utc), is(nullValue()));
+  }
+
+  /**
+   * Tests that a Unix timestamp converts to a date in the local time zone.
+   */
+  @Test void testInternalToDate() {
+    assertThat(internalToDate(0), is(java.sql.Date.valueOf("1970-01-01")));
+    assertThat(internalToDate(dateStringToUnixDate("1500-04-30")),
+        is(java.sql.Date.valueOf("1500-04-30")));
+  }
+
+  /**
+   * Test calendar conversion from the standard Gregorian calendar used by
+   * {@code java.sql} and the proleptic Gregorian calendar used by Unix
+   * timestamps.
+   */
+  @Test void testInternalToDateWithGregorianShift() {
+    // Gregorian shift
+    assertThat(internalToDate(dateStringToUnixDate("1582-10-04")),
+        is(java.sql.Date.valueOf("1582-10-04")));
+    assertThat(internalToDate(dateStringToUnixDate("1582-10-05")),
+        is(java.sql.Date.valueOf("1582-10-15")));
+    assertThat(internalToDate(dateStringToUnixDate("1582-10-15")),
+        is(java.sql.Date.valueOf("1582-10-15")));
+  }
+
+  /**
+   * Test date range 0001-01-01 to 9999-12-31 required by ANSI SQL.
+   *
+   * <p>Java may not be able to represent all dates depending on the default time zone, but both
+   * the expected and actual assertion values handles that in the same way.
+   */
+  @Test void testInternalToDateWithAnsiDateRange() {
+    for (int i = 2; i <= 9999; ++i) {
+      final String str = String.format(Locale.ROOT, "%04d-01-01", i);
+      assertThat(internalToDate(dateStringToUnixDate(str)),
+          is(java.sql.Date.valueOf(str)));
+    }
+  }
+
+  /**
+   * Tests that a Unix time converts to a SQL time in the local time zone.
+   */
+  @Test void testInternalToTime() {
+    assertThat(internalToTime(0), is(Time.valueOf("00:00:00")));
+    assertThat(internalToTime(86399000), is(Time.valueOf("23:59:59")));
+  }
+
+  /**
+   * Tests that timestamp can be converted to a string given a custom pattern.
+   */
+  @Test void testToChar() {
+    String pattern1 = "YYYY-MM-DD HH24:MI:SS.MS";
+    String pattern2 = "Day, DD HH12:MI:SS";
+
+    final SqlFunctions.DateFormatFunction f =
+        new SqlFunctions.DateFormatFunction();
+    assertThat(f.toChar(0, pattern1),
+        is("1970-01-01 00:00:00.000"));
+
+    assertThat(f.toChar(0, pattern2),
+        is("Thursday, 01 12:00:00"));
+
+    final long ts0 = timestampStringToUnixDate("2014-09-30 15:28:27.356");
+    assertThat(f.toChar(ts0, pattern1),
+        is("2014-09-30 15:28:27.356"));
+
+    assertThat(f.toChar(ts0, pattern2),
+        is("Tuesday, 30 03:28:27"));
+
+    final long ts1 = timestampStringToUnixDate("1500-04-30 12:00:00.123");
+    assertThat(f.toChar(ts1, pattern1),
+        is("1500-04-30 12:00:00.123"));
+  }
+
+  @Test void testToDate() {
+    String pattern1 = "YYYY-MM-DD";
+
+    final SqlFunctions.DateFormatFunction f =
+        new SqlFunctions.DateFormatFunction();
+
+    assertThat(f.toDate("2001-10-06", pattern1), is(11601));
+  }
+
+  @Test void testToTimestamp() {
+    String pattern1 = "HH24:MI:SS YYYY-MM-DD";
+
+    final SqlFunctions.DateFormatFunction f =
+        new SqlFunctions.DateFormatFunction();
+
+    assertThat(f.toTimestamp("18:43:36 2001-10-06", pattern1), is(1002393816000L));
+  }
+
+  /**
+   * Tests that a Unix timestamp converts to a SQL timestamp in the local time
+   * zone.
+   */
+  @Test void testInternalToTimestamp() {
+    assertThat(internalToTimestamp(0),
+        is(Timestamp.valueOf("1970-01-01 00:00:00.0")));
+    assertThat(internalToTimestamp(timestampStringToUnixDate("2014-09-30 15:28:27.356")),
+        is(Timestamp.valueOf("2014-09-30 15:28:27.356")));
+    assertThat(internalToTimestamp(timestampStringToUnixDate("1500-04-30 12:00:00.123")),
+        is(Timestamp.valueOf("1500-04-30 12:00:00.123")));
+  }
+
+  /**
+   * Test calendar conversion from the standard Gregorian calendar used by
+   * {@code java.sql} and the proleptic Gregorian calendar used by Unix timestamps.
+   */
+  @Test void testInternalToTimestampWithGregorianShift() {
+    assertThat(
+        internalToTimestamp(timestampStringToUnixDate("1582-10-04 00:00:00")),
+        is(Timestamp.valueOf("1582-10-04 00:00:00.0")));
+    assertThat(
+        internalToTimestamp(timestampStringToUnixDate("1582-10-05 00:00:00")),
+        is(Timestamp.valueOf("1582-10-15 00:00:00.0")));
+    assertThat(
+        internalToTimestamp(timestampStringToUnixDate("1582-10-15 00:00:00")),
+        is(Timestamp.valueOf("1582-10-15 00:00:00.0")));
+  }
+
+  /**
+   * Test date range 0001-01-01 to 9999-12-31 required by ANSI SQL.
+   *
+   * <p>Java may not be able to represent all dates depending on the default
+   * time zone, but both the expected and actual assertion values handles that
+   * in the same way.
+   */
+  @Test void testInternalToTimestampWithAnsiDateRange() {
+    for (int i = 2; i <= 9999; ++i) {
+      final String str = String.format(Locale.ROOT, "%04d-01-01 00:00:00", i);
+      assertThat(internalToTimestamp(timestampStringToUnixDate(str)),
+          is(Timestamp.valueOf(str)));
+    }
+  }
+
+  private int sqlDate(String str) {
+    return toInt(java.sql.Date.valueOf(str));
+  }
+
+  private int sqlTime(String str) {
+    return toInt(java.sql.Time.valueOf(str));
+  }
+
+  private long sqlTimestamp(String str) {
+    return toLong(java.sql.Timestamp.valueOf(str));
+  }
+  @Test void testLeftShift() {
+    // For every shift amount, cross-check the byte-array shift against the
+    // equivalent shift computed on the value's integer interpretation. The byte
+    // array is treated as a little-endian bit string of width 8 * length (index
+    // 0 is the least-significant byte), and leftShift always shifts left by the
+    // amount normalized modulo that width (so a negative amount wraps into range
+    // rather than reversing direction).
+    byte[] data1 = {(byte) 0x0F}; // 00001111
+    for (int shift = -10; shift <= 10; shift++) {
+      byte[] result = SqlFunctions.leftShift(data1.clone(), shift);
+      assertEquals(1, result.length);
+      int norm = Math.floorMod(shift, 8);
+      int expected = ((data1[0] & 0xFF) << norm) & 0xFF;
+      assertEquals((byte) expected, result[0]);
+    }
+
+    byte[] data2 = {(byte) 0x12, (byte) 0x34};
+    for (int shift = -18; shift <= 18; shift++) {
+      byte[] result = SqlFunctions.leftShift(data2.clone(), shift);
+      assertEquals(2, result.length);
+      int value = (data2[0] & 0xFF) | ((data2[1] & 0xFF) << 8); // little-endian
+      int norm = Math.floorMod(shift, 16);
+      int expected = (value << norm) & 0xFFFF;
+      assertEquals((byte) expected, result[0]);
+      assertEquals((byte) (expected >>> 8), result[1]);
+    }
+
+    // Verify specific known cases
+    assertArrayEquals(new byte[]{(byte) 0xAB, (byte) 0xCD},
+        SqlFunctions.leftShift(new byte[]{(byte) 0xAB, (byte) 0xCD}, 0));
+
+    assertArrayEquals(new byte[]{(byte) 0x80, (byte) 0x00},
+        SqlFunctions.leftShift(new byte[]{(byte) 0x40, (byte) 0x00}, 1));
+  }
+
+  @Test void testRightShift() {
+    // Scalar arithmetic (sign-preserving) right shift. Binary right shift is
+    // intentionally not supported (see [CALCITE-7651]), so there is no
+    // byte-array overload to exercise here.
+    assertEquals(2, SqlFunctions.rightShift(8, 2));
+    assertEquals(-5, SqlFunctions.rightShift(-20, 2));
+  }
+
+  @Test void testCombineQueryResults() {
+    // Test combining two equal-length lists
+    List<Integer> list1 = Arrays.asList(1, 2, 3);
+    List<Integer> list2 = Arrays.asList(10, 20, 30);
+    List<Object[]> result = SqlFunctions.combineQueryResults(new List[]{list1, list2});
+
+    assertThat(result, hasSize(3));
+    assertArrayEquals(new Object[]{1, 10}, result.get(0));
+    assertArrayEquals(new Object[]{2, 20}, result.get(1));
+    assertArrayEquals(new Object[]{3, 30}, result.get(2));
+
+    // Test combining lists of different lengths (shorter list padded with nulls)
+    List<String> listA = Arrays.asList("a", "b");
+    List<String> listB = Arrays.asList("x", "y", "z", "w");
+    result = SqlFunctions.combineQueryResults(new List[]{listA, listB});
+
+    assertThat(result, hasSize(4));
+    assertArrayEquals(new Object[]{"a", "x"}, result.get(0));
+    assertArrayEquals(new Object[]{"b", "y"}, result.get(1));
+    assertArrayEquals(new Object[]{null, "z"}, result.get(2));
+    assertArrayEquals(new Object[]{null, "w"}, result.get(3));
+
+    // Test with empty list
+    List<Integer> emptyList = Collections.emptyList();
+    List<Integer> nonEmpty = Arrays.asList(100, 200);
+    result = SqlFunctions.combineQueryResults(new List[]{emptyList, nonEmpty});
+
+    assertThat(result, hasSize(2));
+    assertArrayEquals(new Object[]{null, 100}, result.get(0));
+    assertArrayEquals(new Object[]{null, 200}, result.get(1));
+  }
+
+  /** Test case for
+   * <a href="https://issues.apache.org/jira/browse/CALCITE-7560">[CALCITE-7560]
+   * SqlFunctions.DateParseFunction.parseTimestamp(..., timeZone) accepts unknown
+   * time zones and silently falls back to GMT</a>. */
+  @Test void testParseTimestampRejectsUnknownTimeZone() {
+    final SqlFunctions.DateParseFunction parse = new SqlFunctions.DateParseFunction();
+
+    // A valid time zone is accepted.
+    assertThat(
+        parse.parseTimestamp("%Y-%m-%d %H:%M:%S", "2024-01-01 00:00:00", "UTC"),
+        is(parse.parseTimestamp("%Y-%m-%d %H:%M:%S", "2024-01-01 00:00:00")));
+
+    // An unknown time zone is rejected rather than silently reinterpreted as GMT.
+    assertThrows(RuntimeException.class,
+        () -> parse.parseTimestamp("%Y-%m-%d %H:%M:%S",
+            "2024-01-01 00:00:00", "Asia/Sanghai"));
+  }
+
+  // Tests for SqlFunctions.flatUncollect, the runtime of the Enumerable
+  // implementation of Uncollect. FIELD_IS_SCALAR marks a collection whose
+  // elements occupy a single output column.
+  static final int FIELD_IS_SCALAR = -1;
+
+  // Tests for ZipPaddedEnumerator, accessed via the public
+  // SqlFunctions.flatUncollect API (no pass-through fields, all
+  // input fields are scalar collections).
+
+  /** Invokes {@link SqlFunctions#flatUncollect} over scalar
+   * collections (no pass-through fields) and collects output rows. */
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  private static List<List<Object>> zipScalars(
+      boolean withOrdinality, List<Comparable>... inputs) {
+    final int n = inputs.length;
+    final int[] collectionIndices = new int[n];
+    final int[] fieldCounts = new int[n];
+    final SqlFunctions.FlatProductInputType[] types =
+        new SqlFunctions.FlatProductInputType[n];
+    for (int i = 0; i < n; i++) {
+      collectionIndices[i] = i;
+      fieldCounts[i] = FIELD_IS_SCALAR;
+      types[i] = SCALAR;
+    }
+    final Function1<Object, Enumerable<FlatLists.ComparableList<Comparable>>> fn =
+        SqlFunctions.flatUncollect(
+            new int[]{}, collectionIndices, fieldCounts, types, withOrdinality, n, false);
+    final Object arg = n == 1 ? inputs[0] : inputs;
+    final List<List<Object>> rows = new ArrayList<>();
+    for (FlatLists.ComparableList<Comparable> row : fn.apply(arg)) {
+      rows.add(new ArrayList<>(row));
+    }
+    return rows;
+  }
+
+  @Test void testZipPaddedSingleCollectionWithOrdinality() {
+    // Single scalar collection with ordinality: two output columns
+    // (element, ordinality), so no single-column scalar unwrapping applies.
+    List<List<Object>> rows = zipScalars(true, Arrays.asList(10, 20, 30));
+    assertThat(rows, hasSize(3));
+    assertThat(rows.get(0), is(list(10, 1)));
+    assertThat(rows.get(1), is(list(20, 2)));
+    assertThat(rows.get(2), is(list(30, 3)));
+  }
+
+  @Test void testZipPaddedEqualLength() {
+    List<List<Object>> rows =
+        zipScalars(false, Arrays.asList(10, 20), Arrays.asList(4, 5));
+    assertThat(rows, hasSize(2));
+    assertThat(rows.get(0), is(list(10, 4)));
+    assertThat(rows.get(1), is(list(20, 5)));
+  }
+
+  @Test void testZipPaddedFirstLonger() {
+    List<List<Object>> rows =
+        zipScalars(false, Arrays.asList(10, 20, 30), Arrays.asList(4, 5));
+    assertThat(rows, hasSize(3));
+    assertThat(rows.get(0), is(list(10, 4)));
+    assertThat(rows.get(1), is(list(20, 5)));
+    assertThat(rows.get(2), is(Arrays.asList(30, null)));
+  }
+
+  @Test void testZipPaddedSecondLonger() {
+    List<List<Object>> rows =
+        zipScalars(false, Arrays.asList(10), Arrays.asList(4, 5, 6));
+    assertThat(rows, hasSize(3));
+    assertThat(rows.get(0), is(list(10, 4)));
+    assertThat(rows.get(1), is(Arrays.asList(null, 5)));
+    assertThat(rows.get(2), is(Arrays.asList(null, 6)));
+  }
+
+  @Test void testZipPaddedBothEmpty() {
+    List<List<Object>> rows =
+        zipScalars(false, Collections.emptyList(), Collections.emptyList());
+    assertThat(rows, hasSize(0));
+  }
+
+  @Test void testZipPaddedOneEmpty() {
+    List<List<Object>> rows =
+        zipScalars(false, Arrays.asList(4, 5), Collections.emptyList());
+    assertThat(rows, hasSize(2));
+    assertThat(rows.get(0), is(Arrays.asList(4, null)));
+    assertThat(rows.get(1), is(Arrays.asList(5, null)));
+  }
+
+  @Test void testZipPaddedWithOrdinality() {
+    List<List<Object>> rows =
+        zipScalars(true, Arrays.asList(10, 20, 30), Arrays.asList(4, 5));
+    assertThat(rows, hasSize(3));
+    assertThat(rows.get(0), is(list(10, 4, 1)));
+    assertThat(rows.get(1), is(list(20, 5, 2)));
+    assertThat(rows.get(2), is(Arrays.asList(30, null, 3)));
+  }
+
+  @Test void testZipPaddedStructElements() {
+    // Two LIST (struct) collections of width 2: [(1,2),(3,4)] and [(10,20)]
+    // → [1,2,10,20], [3,4,null,null]
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    final Function1<Object, Enumerable<FlatLists.ComparableList<Comparable>>> fn =
+        SqlFunctions.flatUncollect(
+            new int[]{}, new int[]{0, 1}, new int[]{2, 2},
+            new SqlFunctions.FlatProductInputType[]{LIST, LIST}, false, 2, false);
+    final List<List<Comparable>> col1 =
+        Arrays.asList(FlatLists.of(1, 2), FlatLists.of(3, 4));
+    final List<List<Comparable>> col2 =
+        Collections.singletonList(FlatLists.of(10, 20));
+    final List<List<Object>> rows = new ArrayList<>();
+    for (FlatLists.ComparableList<Comparable> row
+        : fn.apply(new Object[]{col1, col2})) {
+      rows.add(new ArrayList<>(row));
+    }
+    assertThat(rows, hasSize(2));
+    assertThat(rows.get(0), is(list(1, 2, 10, 20)));
+    assertThat(rows.get(1), is(Arrays.asList(3, 4, null, null)));
+  }
+
+  /** The runtime representation of {@code ARRAY[ROW(1, 'x'), ROW(2, 'y')]}:
+   * a list whose elements are the field lists of each ROW. */
+  private static List<List<Comparable>> rowArray() {
+    return Arrays.asList(FlatLists.of(1, "x"), FlatLists.of(2, "y"));
+  }
+
+  @Test void testZipPaddedWholeStructElements() {
+    // Models the Trino semantics of
+    //   UNNEST(ARRAY[ROW(1, 'x'), ROW(2, 'y')], ARRAY[10, 20]) AS t(s, i):
+    // the STRUCT collection keeps each ROW element whole, so column s holds
+    // the element as an Object[]; the scalar column i zips alongside.
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    final Function1<Object, Enumerable<FlatLists.ComparableList<Comparable>>> fn =
+        SqlFunctions.flatUncollect(
+            new int[]{}, new int[]{0, 1},
+            new int[]{FIELD_IS_SCALAR, FIELD_IS_SCALAR}, // one output column per collection
+            new SqlFunctions.FlatProductInputType[]{STRUCT, SCALAR},
+            false, // no ordinality
+            2, false);
+
+    final List<List<Object>> rows = new ArrayList<>();
+    for (FlatLists.ComparableList<Comparable> row
+        : fn.apply(new Object[]{rowArray(), Arrays.asList(10, 20)})) {
+      rows.add(new ArrayList<>(row));
+    }
+
+    // Expected rows: ({1, 'x'}, 10) and ({2, 'y'}, 20).
+    assertThat(rows, hasSize(2));
+    assertArrayEquals(new Object[]{1, "x"}, (Object[]) rows.get(0).get(0));
+    assertThat(rows.get(0).get(1), is(10));
+    assertArrayEquals(new Object[]{2, "y"}, (Object[]) rows.get(1).get(0));
+    assertThat(rows.get(1).get(1), is(20));
+  }
+
+  @Test void testZipPaddedNullStructElement() {
+    // A null element of an expanded ROW ARRAY is a null List, which
+    // must be expanded to one null per ROW field rather than dereferencing the list.
+    @SuppressWarnings({"rawtypes", "unchecked"})
+    final Function1<Object, Enumerable<FlatLists.ComparableList<Comparable>>> fn =
+        SqlFunctions.flatUncollect(
+            new int[]{}, new int[]{0, 1},
+            new int[]{2, FIELD_IS_SCALAR}, // two columns from the struct, one scalar column
+            new SqlFunctions.FlatProductInputType[]{LIST, SCALAR},
+            false, // no ordinality
+            2, false);
+
+    final List<List<Object>> rows = new ArrayList<>();
+    for (FlatLists.ComparableList<Comparable> row
+        : fn.apply(new Object[]{
+            Arrays.asList(FlatLists.of(1, "x"), null),
+            Arrays.asList(10, 20)})) {
+      rows.add(new ArrayList<>(row));
+    }
+
+    assertThat(rows, hasSize(2));
+    assertThat(rows.get(0), is(Arrays.asList(1, "x", 10)));
+    assertThat(rows.get(1), is(Arrays.asList(null, null, 20)));
+  }
+
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  @Test void testFlatUncollectSingleWholeStructCollection() {
+    // Models the Trino semantics of
+    //   UNNEST(ARRAY[ROW(1, 'x'), ROW(2, 'y')]) AS t(s):
+    // the output has the single ROW-typed column s, which PhysTypeImpl stores
+    // in SCALAR row format, so each output row is the bare Object[] struct
+    // value rather than a singleton list.
+    final Function1<Object, Enumerable<FlatLists.ComparableList<Comparable>>> fn =
+        SqlFunctions.flatUncollect(
+            new int[]{}, new int[]{0}, new int[]{FIELD_IS_SCALAR},
+            new SqlFunctions.FlatProductInputType[]{STRUCT}, false, 1, false);
+
+    final List<Object> rows = new ArrayList<>();
+    for (Object row : (Enumerable) fn.apply(rowArray())) {
+      rows.add(row);
+    }
+
+    // Expected rows: {1, 'x'} and {2, 'y'}.
+    assertThat(rows, hasSize(2));
+    assertArrayEquals(new Object[]{1, "x"}, (Object[]) rows.get(0));
+    assertArrayEquals(new Object[]{2, "y"}, (Object[]) rows.get(1));
+
+    // UNNEST of a null array yields no rows.
+    assertThat(((Enumerable) fn.apply(null)).any(), is(false));
+  }
+
+  // Tests for the outer mode of flatUncollect (Uncollect.isOuter): an empty
+  // or NULL collection produces one all-NULL output row instead of none.
+
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  @Test void testFlatUncollectOuterScalar() {
+    // Models SELECT u.x FROM t LEFT JOIN UNNEST(t.arr) AS u(x) ON TRUE
+    final Function1<Object, Enumerable<FlatLists.ComparableList<Comparable>>> fn =
+        SqlFunctions.flatUncollect(
+            new int[]{}, new int[]{0}, new int[]{FIELD_IS_SCALAR},
+            new SqlFunctions.FlatProductInputType[]{SCALAR}, false, 1, true);
+
+    // arr = [1, 2]
+    assertThat(((Enumerable) fn.apply(Arrays.asList(1, 2))).toList(),
+        is(Arrays.asList(1, 2)));
+    // arr = []
+    assertThat(((Enumerable) fn.apply(Collections.emptyList())).toList(),
+        is(Collections.singletonList(null)));
+    // arr = NULL
+    assertThat(((Enumerable) fn.apply(null)).toList(),
+        is(Collections.singletonList(null)));
+  }
+
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  @Test void testFlatUncollectOuterWholeStruct() {
+    // Models, under PRESTO conformance (struct elements kept whole),
+    // SELECT u.s FROM t LEFT JOIN UNNEST(t.arr) AS u(s) ON TRUE.
+    final Function1<Object, Enumerable<FlatLists.ComparableList<Comparable>>> fn =
+        SqlFunctions.flatUncollect(
+            new int[]{}, new int[]{0}, new int[]{FIELD_IS_SCALAR},
+            new SqlFunctions.FlatProductInputType[]{STRUCT}, false, 1, true);
+
+    // arr = [ROW(1, 'x'), ROW(2, 'y')]
+    final List<Object> rows = ((Enumerable) fn.apply(rowArray())).toList();
+    assertThat(rows, hasSize(2));
+    assertArrayEquals(new Object[]{1, "x"}, (Object[]) rows.get(0));
+    // arr = []
+    assertThat(((Enumerable) fn.apply(Collections.emptyList())).toList(),
+        is(Collections.singletonList(null)));
+    // arr = NULL
+    assertThat(((Enumerable) fn.apply(null)).toList(),
+        is(Collections.singletonList(null)));
+  }
+
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  @Test void testFlatUncollectOuterWithOrdinality() {
+    // Models SELECT u.x, u.o
+    //     FROM t LEFT JOIN UNNEST(t.arr) WITH ORDINALITY AS u(x, o) ON TRUE
+    final Function1<Object, Enumerable<FlatLists.ComparableList<Comparable>>> fn =
+        SqlFunctions.flatUncollect(
+            new int[]{}, new int[]{0}, new int[]{FIELD_IS_SCALAR},
+            new SqlFunctions.FlatProductInputType[]{SCALAR}, true, 1, true);
+
+    // arr = [7, 8]
+    final List<List<Object>> rows = new ArrayList<>();
+    for (FlatLists.ComparableList<Comparable> row
+        : fn.apply(Arrays.asList(7, 8))) {
+      rows.add(new ArrayList<>(row));
+    }
+    assertThat(rows,
+        is(Arrays.asList(Arrays.asList(7, 1), Arrays.asList(8, 2))));
+
+    // arr = []; the padded row has a NULL ordinal
+    rows.clear();
+    for (FlatLists.ComparableList<Comparable> row
+        : fn.apply(Collections.emptyList())) {
+      rows.add(new ArrayList<>(row));
+    }
+    assertThat(rows, is(Collections.singletonList(Arrays.asList(null, null))));
+
+    // arr = NULL
+    rows.clear();
+    for (FlatLists.ComparableList<Comparable> row : fn.apply(null)) {
+      rows.add(new ArrayList<>(row));
+    }
+    assertThat(rows, is(Collections.singletonList(Arrays.asList(null, null))));
+  }
+
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  @Test void testFlatUncollectOuterMultipleCollections() {
+    // Models SELECT u.x, u.y FROM t LEFT JOIN UNNEST(t.a, t.b) AS u(x, y) ON TRUE
+    final Function1<Object, Enumerable<FlatLists.ComparableList<Comparable>>> fn =
+        SqlFunctions.flatUncollect(
+            new int[]{}, new int[]{0, 1},
+            new int[]{FIELD_IS_SCALAR, FIELD_IS_SCALAR},
+            new SqlFunctions.FlatProductInputType[]{SCALAR, SCALAR}, false, 2, true);
+
+    // (a, b) = ([], [7]): zip pads a
+    final List<List<Object>> rows = new ArrayList<>();
+    for (FlatLists.ComparableList<Comparable> row
+        : fn.apply(new Object[]{Collections.emptyList(), Arrays.asList(7)})) {
+      rows.add(new ArrayList<>(row));
+    }
+    assertThat(rows, is(Collections.singletonList(Arrays.asList(null, 7))));
+
+    // (a, b) = ([], NULL): one all-NULL row
+    rows.clear();
+    for (FlatLists.ComparableList<Comparable> row
+        : fn.apply(new Object[]{Collections.emptyList(), null})) {
+      rows.add(new ArrayList<>(row));
+    }
+    assertThat(rows, is(Collections.singletonList(Arrays.asList(null, null))));
+  }
+
+  @SuppressWarnings({"rawtypes", "unchecked"})
+  @Test void testFlatUncollectOuterSingleFieldStruct() {
+    // Models SELECT u.x FROM t LEFT JOIN UNNEST(t.arr) AS u(x) ON TRUE
+    // for arr ROW(a INTEGER) ARRAY: the single struct field expands to the
+    // single output column, so rows are bare values (SCALAR row format).
+    final Function1<Object, Enumerable<Object>> fn =
+        (Function1) SqlFunctions.flatUncollect(
+            new int[]{}, new int[]{0}, new int[]{1},
+            new SqlFunctions.FlatProductInputType[]{LIST}, false, 1, true);
+    // arr = [ROW(1), ROW(2)]
+    assertThat(((Enumerable) fn.apply(Arrays.asList(FlatLists.of(1), FlatLists.of(2)))).toList(),
+        is(Arrays.asList(1, 2)));
+    // arr = []
+    assertThat(((Enumerable) fn.apply(Collections.emptyList())).toList(),
+        is(Collections.singletonList(null)));
+    // arr = NULL
+    assertThat(((Enumerable) fn.apply(null)).toList(),
+        is(Collections.singletonList(null)));
+  }
+
+  private static void checkArrayFunctionsWithRows(Object row, Object equalRow) {
+    // The Spark-validated SQL results are recorded in sql/row-equality.iq.
+    // This helper also exercises Java-specific inputs; its full set of inputs
+    // and assertions was not run against Spark.
+    final Object other = new Object[] {9, "Other"};
+    final List<Object> input = list(row, null, other, equalRow);
+    assertThat(SqlFunctions.arrayContains(input, equalRow), is(true));
+    assertThat(SqlFunctions.arrayContains(list(other), row), is(false));
+    assertThat(SqlFunctions.arrayPosition(input, equalRow), is(1L));
+    assertThat(SqlFunctions.arrayPosition(list(other), row), is(0L));
+    assertThat(SqlFunctions.arrayRemove(input, equalRow), is(list(null, other)));
+    assertThat(SqlFunctions.distinct(input), is(list(row, null, other)));
+    assertThat(SqlFunctions.arrayUnion(input, list(equalRow, other, null)),
+        is(list(row, null, other)));
+    assertThat(SqlFunctions.arrayIntersect(input, list(equalRow, null)),
+        is(list(row, null)));
+    assertThat(SqlFunctions.arrayIntersect(input, list(null, equalRow, null, equalRow)),
+        is(list(row, null)));
+    assertThat(SqlFunctions.arrayExcept(input, list(equalRow, null)), is(list(other)));
+    assertThat(arraysOverlap(input, list(equalRow)), is(true));
+    assertThat(arraysOverlap(list(row), list(other)), is(false));
+    assertThat(arraysOverlap(list(row, null), list(other)), is(nullValue()));
+    assertThat(arraysOverlap(list(), input), is(false));
+    assertThat(input, is(list(row, null, other, equalRow)));
+  }
+
+  // Tests for the pass-through mode of flatUncollect: designated input
+  // fields are copied unchanged into every output row.
+
+  /** Applies {@code fn} to a single input row and collects all output rows. */
+  private static List<List<Object>> collectRows(
+      Function1<Object, Enumerable<FlatLists.ComparableList<Comparable>>> fn,
+      Object inputRow) {
+    final List<List<Object>> result = new ArrayList<>();
+    for (FlatLists.ComparableList<Comparable> row : fn.apply(inputRow)) {
+      result.add(new ArrayList<>(row));
+    }
+    return result;
+  }
+
+  /** Like {@link #collectRows}, but for the single-output-column case, where
+   * {@link SqlFunctions#flatUncollect} returns bare scalars
+   * (matching {@link org.apache.calcite.adapter.enumerable.JavaRowFormat#SCALAR})
+   * rather than singleton rows. */
+  @SuppressWarnings("rawtypes")
+  private static List<Object> collectScalarRows(
+      Function1<Object, Enumerable<FlatLists.ComparableList<Comparable>>> fn,
+      Object inputRow) {
+    final List<Object> result = new ArrayList<>();
+    for (Object row : (Enumerable) fn.apply(inputRow)) {
+      result.add(row);
+    }
+    return result;
+  }
+
+  @Test void testFlatUncollectPassthroughInner() {
+    // Models SELECT t.name, u.x FROM t, UNNEST(t.arr) AS u(x)
+    //    TABLE t(name VARCHAR, arr INTEGER ARRAY)
+    // name passes through, arr is unnested, INNER semantics.
+    final Function1<Object, Enumerable<FlatLists.ComparableList<Comparable>>> fn =
+        SqlFunctions.flatUncollect(
+            new int[]{0}, new int[]{1},
+            new int[]{FIELD_IS_SCALAR},
+            new SqlFunctions.FlatProductInputType[]{SCALAR},
+            false,
+            2,
+            false);
+
+    // Non-empty collection: one output row per element.
+    List<List<Object>> rows =
+        collectRows(fn, new Object[]{"a", Arrays.asList(10, 20, 30)});
+    assertThat(rows, hasSize(3));
+    assertThat(rows.get(0), is(list("a", 10)));
+    assertThat(rows.get(1), is(list("a", 20)));
+    assertThat(rows.get(2), is(list("a", 30)));
+    // Empty collection: row dropped.
+    assertThat(collectRows(fn, new Object[]{"b", Collections.emptyList()}), hasSize(0));
+    // Null collection: row dropped (null-safe).
+    assertThat(collectRows(fn, new Object[]{"c", null}), hasSize(0));
+  }
+
+  @Test void testFlatUncollectPassthroughOuter() {
+    // Models SELECT t.name, u.x FROM t LEFT JOIN UNNEST(t.arr) AS u(x) ON TRUE
+    // for TABLE t(name VARCHAR, arr INTEGER ARRAY)
+    // name passes through, arr is unnested, OUTER (LEFT JOIN) semantics.
+    final Function1<Object, Enumerable<FlatLists.ComparableList<Comparable>>> fn =
+        SqlFunctions.flatUncollect(
+            new int[]{0}, new int[]{1},
+            new int[]{FIELD_IS_SCALAR},
+            new SqlFunctions.FlatProductInputType[]{SCALAR},
+            false,
+            2,
+            true);
+
+    // Non-empty collection: same behaviour as INNER.
+    List<List<Object>> rows =
+        collectRows(fn, new Object[]{"a", Arrays.asList(1, 2)});
+    assertThat(rows, hasSize(2));
+    assertThat(rows.get(0), is(list("a", 1)));
+    assertThat(rows.get(1), is(list("a", 2)));
+
+    // Empty collection: one null row; passthrough field preserved.
+    List<List<Object>> emptyRows =
+        collectRows(fn, new Object[]{"b", Collections.emptyList()});
+    assertThat(emptyRows, hasSize(1));
+    assertThat(emptyRows.get(0), is(Arrays.asList("b", null)));
+
+    // Null collection: one null row; passthrough field preserved.
+    List<List<Object>> nullRows =
+        collectRows(fn, new Object[]{"c", null});
+    assertThat(nullRows, hasSize(1));
+    assertThat(nullRows.get(0), is(Arrays.asList("c", null)));
+  }
+
+  @Test void testFlatUncollectPassthroughOrdinality() {
+    // Models SELECT t.name, u.x, u.o
+    //     FROM t, UNNEST(t.arr) WITH ORDINALITY AS u(x, o)
+    // for TABLE t(name VARCHAR, arr INTEGER ARRAY)
+    final Function1<Object, Enumerable<FlatLists.ComparableList<Comparable>>> innerFn =
+        SqlFunctions.flatUncollect(
+            new int[]{0}, new int[]{1},
+            new int[]{FIELD_IS_SCALAR},
+            new SqlFunctions.FlatProductInputType[]{SCALAR},
+            true,
+            2,
+            false);
+
+    List<List<Object>> rows =
+        collectRows(innerFn, new Object[]{"a", Arrays.asList(10, 20)});
+    assertThat(rows, hasSize(2));
+    assertThat(rows.get(0), is(list("a", 10, 1)));
+    assertThat(rows.get(1), is(list("a", 20, 2)));
+
+    // Models SELECT t.name, u.x, u.o
+    //     FROM t LEFT JOIN UNNEST(t.arr) WITH ORDINALITY AS u(x, o) ON TRUE
+    final Function1<Object, Enumerable<FlatLists.ComparableList<Comparable>>> outerFn =
+        SqlFunctions.flatUncollect(
+            new int[]{0}, new int[]{1},
+            new int[]{FIELD_IS_SCALAR},
+            new SqlFunctions.FlatProductInputType[]{SCALAR},
+            true,
+            2,
+            true);
+
+    List<List<Object>> outerEmpty =
+        collectRows(outerFn, new Object[]{"b", Collections.emptyList()});
+    assertThat(outerEmpty, hasSize(1));
+    assertThat(outerEmpty.get(0), is(Arrays.asList("b", null, null)));
+  }
+
+  @Test void testFlatUncollectDroppedField() {
+    // Models SELECT t.y, u.x FROM t, UNNEST(t.arr) AS u(x)
+    // for TABLE t(x VARCHAR, arr INTEGER ARRAY, y VARCHAR)
+    // column x is dropped from the output
+    final Function1<Object, Enumerable<FlatLists.ComparableList<Comparable>>> fn =
+        SqlFunctions.flatUncollect(
+            new int[]{2}, new int[]{1},
+            new int[]{FIELD_IS_SCALAR},
+            new SqlFunctions.FlatProductInputType[]{SCALAR},
+            false,
+            3,
+            false);
+
+    List<List<Object>> rows =
+        collectRows(fn, new Object[]{"x", Arrays.asList(10, 20), "y"});
+    assertThat(rows, hasSize(2));
+    assertThat(rows.get(0), is(list("y", 10)));
+    assertThat(rows.get(1), is(list("y", 20)));
+  }
+
+  @Test void testFlatUncollectScalarRowFormat() {
+    // Models SELECT u.x FROM t, UNNEST(t.arr) AS u(x)
+    // for TABLE t(arr INTEGER ARRAY).
+    final Function1<Object, Enumerable<FlatLists.ComparableList<Comparable>>> fn =
+        SqlFunctions.flatUncollect(
+            new int[]{}, new int[]{0},
+            new int[]{FIELD_IS_SCALAR},
+            new SqlFunctions.FlatProductInputType[]{SCALAR},
+            false,
+            1,
+            false);
+
+    List<Object> rows = collectScalarRows(fn, Arrays.asList(10, 20, 30));
+    assertThat(rows, hasSize(3));
+    assertThat(rows.get(0), is(10));
+    assertThat(rows.get(1), is(20));
+    assertThat(rows.get(2), is(30));
+
+    // Empty in OUTER scalar format: one bare null row.
+    final Function1<Object, Enumerable<FlatLists.ComparableList<Comparable>>> outerFn =
+        SqlFunctions.flatUncollect(
+            new int[]{}, new int[]{0},
+            new int[]{FIELD_IS_SCALAR},
+            new SqlFunctions.FlatProductInputType[]{SCALAR},
+            false,
+            1,
+            true);
+
+    List<Object> outerEmpty = collectScalarRows(outerFn, Collections.emptyList());
+    assertThat(outerEmpty, hasSize(1));
+    assertThat(outerEmpty.get(0), is(nullValue()));
+  }
 }
