@@ -81,7 +81,23 @@ public class AliasNamespace extends AbstractNamespace {
     final List<SqlNode> operands = call.getOperandList();
     final SqlValidatorNamespace childNs =
         validator.getNamespaceOrThrow(operands.get(0));
-    final RelDataType rowType = childNs.getRowTypeSansSystemColumns();
+    final RelDataType rowType0 = childNs.getRowTypeSansSystemColumns();
+    // An alias namespace renames columns positionally (or, without a column
+    // list, not at all), so the child's filter requirement applies unchanged
+    filterRequirement = childNs.getFilterRequirement();
+    final RelDataType rowType;
+    if (rowType0.isStruct()) {
+      rowType = rowType0;
+    } else {
+      // Joins produce RelCrossType, which is not a struct. Convert to a struct
+      // so that columns can be resolved via the alias.
+      rowType = validator.getTypeFactory().builder()
+          .kind(StructKind.FULLY_QUALIFIED)
+          .addAll(
+              Util.transform(rowType0.getFieldList(),
+                  f -> Pair.of(f.getName(), f.getType())))
+          .build();
+    }
     final RelDataType aliasedType;
     if (operands.size() == 2) {
       final SqlNode node = operands.get(0);
