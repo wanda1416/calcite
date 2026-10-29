@@ -2194,6 +2194,217 @@ public class SqlParserTest {
     sql(sql).ok(expected);
   }
 
+  @Test void testWithRecursive() {
+    final String sql = "WITH RECURSIVE aux(i) AS (\n"
+        + "  VALUES (1)\n"
+        + "  UNION ALL\n"
+        + "  SELECT i+1 FROM aux WHERE i < 10\n"
+        + "  )\n"
+        + "  SELECT * FROM aux";
+    final String expected = "WITH RECURSIVE `AUX` (`I`) AS ((VALUES (ROW(1)))\n"
+        + "UNION ALL\n"
+        + "SELECT (`I` + 1)\n"
+        + "FROM `AUX`\n"
+        + "WHERE (`I` < 10)) SELECT *\n"
+        + "FROM `AUX`";
+    sql(sql).ok(expected);
+  }
+
+  /** Test case for
+   * <a href="https://issues.apache.org/jira/browse/CALCITE-7815">[CALCITE-7815]
+   * Support the SQL-standard SEARCH clause in recursive CTEs</a>. */
+  @Test void testWithSearch() {
+    for (String mode : new String[]{"DEPTH", "BREADTH"}) {
+      sql("WITH RECURSIVE t(n) AS (VALUES (1) UNION ALL SELECT n FROM t)\n"
+          + "SEARCH " + mode + " FIRST BY n SET seq SELECT * FROM t")
+          .ok("WITH RECURSIVE `T` (`N`) AS ((VALUES (ROW(1)))\n"
+              + "UNION ALL\n"
+              + "SELECT `N`\n"
+              + "FROM `T`) SEARCH " + mode + " FIRST BY `N` SET `SEQ` SELECT *\n"
+              + "FROM `T`");
+    }
+  }
+
+  @Test void testWithSearchCompositeKey() {
+    for (String mode : new String[]{"DEPTH", "BREADTH"}) {
+      sql("WITH RECURSIVE t(\"Key\", depth) AS (VALUES (1, 0)\n"
+          + "UNION ALL SELECT \"Key\", depth + 1 FROM t)\n"
+          + "SEARCH " + mode + " FIRST BY \"Key\", depth SET \"Sequence\" SELECT * FROM t")
+          .ok("WITH RECURSIVE `T` (`Key`, `DEPTH`) AS ((VALUES (ROW(1, 0)))\n"
+              + "UNION ALL\n"
+              + "SELECT `Key`, (`DEPTH` + 1)\n"
+              + "FROM `T`) SEARCH " + mode + " FIRST BY `Key`, `DEPTH`"
+              + " SET `Sequence` SELECT *\n"
+              + "FROM `T`");
+    }
+  }
+
+  @Test void testWithSearchFollowingWithItem() {
+    sql("WITH RECURSIVE t(n) AS (VALUES (1) UNION ALL SELECT n FROM t)\n"
+        + "SEARCH BREADTH FIRST BY n SET seq, u AS (SELECT * FROM t) SELECT * FROM u")
+        .ok("WITH RECURSIVE `T` (`N`) AS ((VALUES (ROW(1)))\n"
+            + "UNION ALL\n"
+            + "SELECT `N`\n"
+            + "FROM `T`) SEARCH BREADTH FIRST BY `N` SET `SEQ`, `U` AS (SELECT *\n"
+            + "FROM `T`) SELECT *\n"
+            + "FROM `U`");
+  }
+
+  @Test void testWithSearchAndCycle() {
+    sql("WITH RECURSIVE t(n) AS (VALUES (1) UNION ALL SELECT n FROM t)\n"
+        + "SEARCH DEPTH FIRST BY n SET seq CYCLE n SET c USING p SELECT * FROM t")
+        .ok("WITH RECURSIVE `T` (`N`) AS ((VALUES (ROW(1)))\n"
+            + "UNION ALL\n"
+            + "SELECT `N`\n"
+            + "FROM `T`) SEARCH DEPTH FIRST BY `N` SET `SEQ`"
+            + " CYCLE `N` SET `C` TO TRUE DEFAULT FALSE USING `P` SELECT *\n"
+            + "FROM `T`");
+  }
+
+  @Test void testWithSearchFails() {
+    final String prefix = "WITH RECURSIVE t(n) AS (VALUES (1) UNION ALL SELECT n FROM t)\n";
+    sql(prefix + "SEARCH ^FIRST^ BY n SET seq SELECT * FROM t")
+        .fails("(?s)Encountered \"FIRST\" at .*Was expecting.*\"BREADTH\".*\"DEPTH\".*");
+    sql(prefix + "SEARCH DEPTH ^BY^ n SET seq SELECT * FROM t")
+        .fails("(?s)Encountered \"BY\" at .*Was expecting.*\"FIRST\".*");
+    sql(prefix + "SEARCH BREADTH FIRST ^n^ SET seq SELECT * FROM t")
+        .fails("(?s)Encountered \"n\" at .*Was expecting.*\"BY\".*");
+    // BY requires a non-empty list of column names, not expressions.
+    sql(prefix + "SEARCH DEPTH FIRST BY ^SET^ seq SELECT * FROM t")
+        .fails("(?s)Incorrect syntax near the keyword 'SET' at .*Was expecting.*<IDENTIFIER>.*");
+    sql(prefix + "SEARCH DEPTH FIRST BY n, ^SET^ seq SELECT * FROM t")
+        .fails("(?s)Incorrect syntax near the keyword 'SET' at .*Was expecting.*<IDENTIFIER>.*");
+    sql(prefix + "SEARCH DEPTH FIRST BY n ^+^ 1 SET seq SELECT * FROM t")
+        .fails("(?s)Encountered \"\\+\" at .*Was expecting.*\"SET\".*");
+    sql(prefix + "SEARCH DEPTH FIRST BY n ^SELECT^ * FROM t")
+        .fails("(?s)Encountered \"SELECT\" at .*Was expecting.*\"SET\".*");
+    sql(prefix + "SEARCH DEPTH FIRST BY n SET ^SELECT^ * FROM t")
+        .fails("(?s)Incorrect syntax near the keyword 'SELECT' at .*Was expecting.*<IDENTIFIER>.*");
+    // SEARCH must precede CYCLE.
+    sql(prefix + "CYCLE n SET c USING p ^SEARCH^ DEPTH FIRST BY n SET seq SELECT * FROM t")
+        .fails("(?s)Incorrect syntax near the keyword 'SEARCH' at .*Was expecting.*");
+  }
+
+  @Test void testWithCycle() {
+    sql("WITH RECURSIVE t(n) AS (VALUES (1) UNION ALL SELECT n FROM t)\n"
+        + "CYCLE n SET c TO 'Y' DEFAULT 'N' USING p SELECT * FROM t")
+        .ok("WITH RECURSIVE `T` (`N`) AS ((VALUES (ROW(1)))\n"
+            + "UNION ALL\n"
+            + "SELECT `N`\n"
+            + "FROM `T`) CYCLE `N` SET `C` TO 'Y' DEFAULT 'N' USING `P` SELECT *\n"
+            + "FROM `T`");
+  }
+
+  @Test void testWithCycleDefaultMarks() {
+    final String expected = "WITH RECURSIVE `T` (`N`) AS ((VALUES (ROW(1)))\n"
+        + "UNION ALL\n"
+        + "SELECT `N`\n"
+        + "FROM `T`) CYCLE `N` SET `C` TO TRUE DEFAULT FALSE USING `P` SELECT *\n"
+        + "FROM `T`";
+    final String prefix = "WITH RECURSIVE t(n) AS (VALUES (1) UNION ALL SELECT n FROM t)\n"
+        + "CYCLE n SET c ";
+    sql(prefix + "TO TRUE DEFAULT FALSE USING p SELECT * FROM t").ok(expected);
+    sql(prefix + "USING p SELECT * FROM t").ok(expected);
+  }
+
+  @Test void testWithCycleCompositeKey() {
+    sql("WITH RECURSIVE t(\"Key\", depth) AS (VALUES (1, 0)\n"
+        + "UNION ALL SELECT \"Key\", depth + 1 FROM t)\n"
+        + "CYCLE \"Key\", depth SET \"Cycle\" USING \"Path\" SELECT * FROM t")
+        .ok("WITH RECURSIVE `T` (`Key`, `DEPTH`) AS ((VALUES (ROW(1, 0)))\n"
+            + "UNION ALL\n"
+            + "SELECT `Key`, (`DEPTH` + 1)\n"
+            + "FROM `T`) CYCLE `Key`, `DEPTH` SET `Cycle` TO TRUE DEFAULT FALSE"
+            + " USING `Path` SELECT *\n"
+            + "FROM `T`");
+  }
+
+  @Test void testWithCycleFollowingWithItem() {
+    sql("WITH RECURSIVE t(n) AS (VALUES (1) UNION ALL SELECT n FROM t)\n"
+        + "CYCLE n SET c USING p, u AS (SELECT * FROM t) SELECT * FROM u")
+        .ok("WITH RECURSIVE `T` (`N`) AS ((VALUES (ROW(1)))\n"
+            + "UNION ALL\n"
+            + "SELECT `N`\n"
+            + "FROM `T`) CYCLE `N` SET `C` TO TRUE DEFAULT FALSE USING `P`,"
+            + " `U` AS (SELECT *\n"
+            + "FROM `T`) SELECT *\n"
+            + "FROM `U`");
+  }
+
+  @Test void testWithCycleFails() {
+    String wasExpectedIdentifierClause = "Was expecting.*<IDENTIFIER>.*";
+
+    final String prefix = "WITH RECURSIVE t(n) AS (VALUES (1) UNION ALL SELECT n FROM t)\n";
+    // A non-empty list of column names is required.
+    sql(prefix + "CYCLE ^SET^ c USING p SELECT * FROM t")
+        .fails("(?s)Incorrect syntax near the keyword 'SET' at .*"
+            + wasExpectedIdentifierClause);
+    sql(prefix + "CYCLE n, ^SET^ c USING p SELECT * FROM t")
+        .fails("(?s)Incorrect syntax near the keyword 'SET' at .*"
+            + wasExpectedIdentifierClause);
+    sql(prefix + "CYCLE n ^+^ 1 SET c USING p SELECT * FROM t")
+        .fails("(?s)Encountered \"\\+\" at .*Was expecting.*\"SET\".*");
+    sql(prefix + "CYCLE n ^USING^ p SELECT * FROM t")
+        .fails("(?s)Encountered \"USING\" at .*Was expecting.*\"SET\".*");
+    sql(prefix + "CYCLE n SET ^USING^ p SELECT * FROM t")
+        .fails("(?s)Incorrect syntax near the keyword 'USING' at .*"
+            + wasExpectedIdentifierClause);
+    // TO and DEFAULT must either both be present or both be omitted.
+    sql(prefix + "CYCLE n SET c TO TRUE ^USING^ p SELECT * FROM t")
+        .fails("(?s)Encountered \"USING\" at .*Was expecting.*\"DEFAULT\".*");
+    sql(prefix + "CYCLE n SET c ^DEFAULT^ FALSE USING p SELECT * FROM t")
+        .fails("(?s)Encountered \"DEFAULT\" at .*Was expecting.*\"USING\".*");
+    sql(prefix + "CYCLE n SET c TO TRUE DEFAULT FALSE ^SELECT^ * FROM t")
+        .fails("(?s)Encountered \"SELECT\" at .*Was expecting.*\"USING\".*");
+    sql(prefix + "CYCLE n SET c USING ^SELECT^ * FROM t")
+        .fails("(?s)Incorrect syntax near the keyword 'SELECT' at .*"
+            + wasExpectedIdentifierClause);
+  }
+
+  /** Test case for <a href="https://issues.apache.org/jira/browse/CALCITE-7784">[CALCITE-7784]
+   * Parse fails for ROW(CASE ...)</a>. */
+  @Test void testRowCase() {
+    sql("select row(case when x > 0 then 1 end, x) from t")
+        .ok("SELECT (ROW((CASE WHEN (`X` > 0) THEN 1 ELSE NULL END), `X`))\n"
+            + "FROM `T`");
+  }
+
+  @Test void testMultipleWithRecursive() {
+    final String sql = "WITH RECURSIVE a(x) AS\n"
+        + "  (SELECT 1),\n"
+        + "               b(y) AS\n"
+        + "  (SELECT x\n"
+        + "   FROM a\n"
+        + "   UNION ALL SELECT y + 1\n"
+        + "   FROM b\n"
+        + "   WHERE y < 2),\n"
+        + "               c(z) AS\n"
+        + "  (SELECT y\n"
+        + "   FROM b\n"
+        + "   UNION ALL SELECT z * 4\n"
+        + "   FROM c\n"
+        + "   WHERE z < 4 )\n"
+        + "SELECT *\n"
+        + "FROM a,\n"
+        + "     b,\n"
+        + "     c";
+    final String expected = "WITH RECURSIVE `A` (`X`) AS (SELECT 1), `B` (`Y`) AS (SELECT `X`\n"
+        + "FROM `A`\n"
+        + "UNION ALL\n"
+        + "SELECT (`Y` + 1)\n"
+        + "FROM `B`\n"
+        + "WHERE (`Y` < 2)), `C` (`Z`) AS (SELECT `Y`\n"
+        + "FROM `B`\n"
+        + "UNION ALL\n"
+        + "SELECT (`Z` * 4)\n"
+        + "FROM `C`\n"
+        + "WHERE (`Z` < 4)) SELECT *\n"
+        + "FROM `A`,\n"
+        + "`B`,\n"
+        + "`C`";
+    sql(sql).ok(expected);
+  }
+
   @Test void testWith() {
     final String sql = "with femaleEmps as (select * from emps where gender = 'F')"
         + "select deptno from femaleEmps";

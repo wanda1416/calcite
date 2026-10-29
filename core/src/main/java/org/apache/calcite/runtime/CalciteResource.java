@@ -806,6 +806,31 @@ public interface CalciteResource {
   @BaseMessage("Must contain an ORDER BY clause when WITHIN is used")
   ExInst<SqlValidatorException> cannotUseWithinWithoutOrderBy();
 
+  @BaseMessage("A recursive query only supports UNION [ALL] operator")
+  ExInst<SqlValidatorException> recursiveWithMustHaveUnionSetOp();
+
+  @BaseMessage("A recursive query only supports binary UNION [ALL] operator")
+  ExInst<SqlValidatorException> recursiveWithMustHaveTwoChildUnionSetOp();
+
+  @BaseMessage("{0} requires WITH RECURSIVE")
+  ExInst<SqlValidatorException> recursiveClauseRequiresRecursive(String clause);
+
+  @BaseMessage("{0} requires a UNION [ALL] with a recursive SELECT containing exactly one direct reference to its WITH item")
+  ExInst<SqlValidatorException> recursiveClauseRequiresRecursiveSelect(String clause);
+
+  @BaseMessage("{0} is not supported with aggregation, DISTINCT, or window functions in the recursive SELECT")
+  ExInst<SqlValidatorException> recursiveClauseSelectNotSupported(String clause);
+
+  @BaseMessage("{0} column ''{1}'' is not a column of WITH item ''{2}''")
+  ExInst<SqlValidatorException> recursiveClauseColumnNotFound(String clause,
+      String column, String withItem);
+
+  @BaseMessage("{0} generated column ''{1}'' conflicts with another column")
+  ExInst<SqlValidatorException> recursiveClauseColumnConflict(String clause, String column);
+
+  @BaseMessage("CYCLE mark and default must be distinct, non-null Boolean or compatible single-character string literals")
+  ExInst<SqlValidatorException> cycleInvalidMarkValues();
+
   @BaseMessage("First column of ORDER BY must be of type TIMESTAMP")
   ExInst<SqlValidatorException> firstColumnOfOrderByMustBeTimestamp();
 
