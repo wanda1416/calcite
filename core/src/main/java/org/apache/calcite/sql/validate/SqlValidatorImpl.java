@@ -3870,7 +3870,7 @@ public class SqlValidatorImpl implements SqlValidatorWithHints {
     return res;
   }
 
-  private void checkRollUp(@Nullable SqlNode grandParent, @Nullable SqlNode parent,
+  protected void checkRollUp(@Nullable SqlNode grandParent, @Nullable SqlNode parent,
       @Nullable SqlNode current, SqlValidatorScope scope, @Nullable String contextClause) {
     current = stripAs(current);
     if (current instanceof SqlCall && !(current instanceof SqlSelect)) {
