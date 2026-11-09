@@ -4481,6 +4481,60 @@ public abstract class EnumerableDefaults {
     }
   }
 
+  /**
+   * Exception used for control flow (it does not populate the stack trace to be more efficient)
+   * to signal that both values are <code>null</code>, so that the caller method (i.e. MergeJoin
+   * algorithm) can act accordingly.
+   */
+  private static class BothValuesAreNullException extends RuntimeException {
+    @Override public synchronized Throwable fillInStackTrace() {
+      return this;
+    }
+  }
+
+  /** Compares merge join keys, optionally rejecting equal keys containing NULL fields.
+   * Checks fields only after comparing keys, so unequal keys retain their sort order. */
+  public static <T> int compareObjectsNullsLastForMergeJoin(@Nullable T v0,
+      @Nullable T v1, Comparator<? super T> comparator,
+      @Nullable Predicate1<? super T> containsNull) {
+    if (v0 == null && v1 == null) {
+      throw new BothValuesAreNullException();
+    }
+    if (v0 == null) {
+      return 1;
+    }
+    if (v1 == null) {
+      return -1;
+    }
+    final int c = comparator.compare(v0, v1);
+    // Equal keys have matching NULL fields, so checking one side is enough.
+    if (c == 0 && containsNull != null && containsNull.apply(v0)) {
+      // A ROW containing NULL cannot match: use the same signal as two NULL keys
+      // so merge join advances without emitting a match.
+      throw new BothValuesAreNullException();
+    }
+    return c;
+  }
+
+  public static int compareNullsLastForMergeJoin(@Nullable Comparable v0, @Nullable Comparable v1) {
+    return compareNullsLastForMergeJoin(v0, v1, null);
+  }
+
+  public static int compareNullsLastForMergeJoin(@Nullable Comparable v0, @Nullable Comparable v1,
+      @Nullable Comparator comparator) {
+    // Special code for mergeJoin algorithm: in case of two null values, they must not be
+    // considered as equal (otherwise the join would return incorrect results)
+    if (v0 == null && v1 == null) {
+      throw new BothValuesAreNullException();
+    }
+
+    //noinspection unchecked
+    return v0 == v1 ? 0
+        : v0 == null ? 1
+            : v1 == null ? -1
+                : comparator == null ? v0.compareTo(v1) : comparator.compare(v0, v1);
+  }
+
   /** Enumerates the elements of a cartesian product of two inputs.
    *
    * @param <TResult> result type
