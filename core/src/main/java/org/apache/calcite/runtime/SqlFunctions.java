@@ -2694,7 +2694,605 @@ public class SqlFunctions {
       atomic = new AtomicLong();
       map.put(key, atomic);
     }
-    return atomic;
+    final List smaller = list1;
+    final List bigger = list2;
+    boolean hasNull = false;
+    if (!smaller.isEmpty() && !bigger.isEmpty()) {
+      final Set<@Nullable Object> smallestSet = toDeepEqualityHashSet(smaller);
+      hasNull = smallestSet.remove(null);
+      for (Object element : bigger) {
+        if (element == null) {
+          hasNull = true;
+        } else if (smallestSet.contains(wrapForDeepEquality(element))) {
+          return true;
+        }
+      }
+    }
+    if (hasNull) {
+      return null;
+    } else {
+      return false;
+    }
+  }
+
+  /** Support the ARRAYS_ZIP function. */
+  @SuppressWarnings("argument.type.incompatible")
+  public static List arraysZip(List... lists) {
+    final int biggestCardinality = lists.length == 0
+        ? 0
+        : Arrays.stream(lists).mapToInt(List::size).max().getAsInt();
+
+    final List result = new ArrayList(biggestCardinality);
+    for (int i = 0; i < biggestCardinality; i++) {
+      List<Object> row = new ArrayList<>();
+      Object value;
+      for (List list : lists) {
+        if (i < list.size() && list.get(i) != null) {
+          value = list.get(i);
+        } else {
+          value = null;
+        }
+        row.add(value);
+      }
+      result.add(row);
+    }
+    return result;
+  }
+
+  /** Support the ARRAY_COMPACT function. */
+  public static List compact(List list) {
+    final List result = new ArrayList();
+    for (Object element : list) {
+      if (element != null) {
+        result.add(element);
+      }
+    }
+    return result;
+  }
+
+  /** Tests whether a recursive CTE path contains a key tuple.
+   * Implements the condition of {@code CASE WHEN key IN (path) THEN ...}:
+   * only TRUE comparisons close a cycle; UNKNOWN does not. */
+  public static boolean cyclePathContains(List<?> path, Object key) {
+    for (Object previous : path) {
+      if (Boolean.TRUE.equals(rowEq(previous, key))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Support the ARRAY_APPEND function. */
+  public static List arrayAppend(List list, Object element) {
+    final List result = new ArrayList(list.size() + 1);
+    result.addAll(list);
+    result.add(element);
+    return result;
+  }
+
+  /** Support the ARRAY_DISTINCT function. */
+  public static List distinct(List list) {
+    return unwrapDeepEqualitySet(toDeepEqualityLinkedHashSet(list));
+  }
+
+  /** Support the ARRAY_MAX function. */
+  public static @Nullable <T> T arrayMax(List<? extends T> list) {
+    T max = null;
+    for (int i = 0; i < list.size(); i++) {
+      T item = list.get(i);
+      if (item != null && (max == null || compareNullable(item, max, "ARRAY_MAX") > 0)) {
+        max = item;
+      }
+    }
+    return max;
+  }
+
+  /** Support the ARRAY_MIN function. */
+  public static @Nullable <T> T arrayMin(List<? extends T> list) {
+    T min = null;
+    for (int i = 0; i < list.size(); i++) {
+      T item = list.get(i);
+      if (item != null && (min == null || compareNullable(item, min, "ARRAY_MIN") < 0)) {
+        min = item;
+      }
+    }
+    return min;
+  }
+
+  /** Support the ARRAY_PREPEND function. */
+  public static List arrayPrepend(List list, Object element) {
+    final List result = new ArrayList(list.size() + 1);
+    result.add(element);
+    result.addAll(list);
+    return result;
+  }
+
+  /** Support the ARRAY_CONTAINS function. */
+  public static boolean arrayContains(List list, Object element) {
+    for (Object value : list) {
+      if (Functions.deepEquals(value, element)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Support the ARRAY_POSITION function. */
+  public static Long arrayPosition(List list, Object element) {
+    long position = 1;
+    for (Object value : list) {
+      if (Functions.deepEquals(value, element)) {
+        return position;
+      }
+      position++;
+    }
+    return 0L;
+  }
+
+  /** Support the ARRAY_REMOVE function. */
+  public static List arrayRemove(List list, Object element) {
+    final List result = new ArrayList();
+    for (Object obj : list) {
+      if (obj == null || !Functions.deepEquals(obj, element)) {
+        result.add(obj);
+      }
+    }
+    return result;
+  }
+
+  /** Support the ARRAY_REPEAT function. */
+  public static @Nullable List<Object> arrayRepeat(Object element, Object count) {
+    if (count == null) {
+      return null;
+    }
+    int numberOfElement = (int) count;
+    if (numberOfElement < 0) {
+      numberOfElement = 0;
+    }
+    return Collections.nCopies(numberOfElement, element);
+  }
+
+  /** Support the ARRAY_EXCEPT function. */
+  public static List arrayExcept(List list1, List list2) {
+    final Set<@Nullable Object> result = toDeepEqualityLinkedHashSet(list1);
+    for (Object element : list2) {
+      result.remove(wrapForDeepEquality(element));
+    }
+    return unwrapDeepEqualitySet(result);
+  }
+
+  /** Support the ARRAY_INSERT function. */
+  public static @Nullable List arrayInsert(List baselist, Object pos, Object val) {
+    if (baselist == null || pos == null) {
+      return null;
+    }
+    int posInt = (int) pos;
+    Object[] baseArray = baselist.toArray();
+    if (posInt == 0 || posInt >= MAX_ARRAY_LENGTH || posInt <= -MAX_ARRAY_LENGTH) {
+      throw new IllegalArgumentException("The index 0 is invalid. "
+          + "An index shall be either < 0 or > 0 (the first element has index 1) "
+          + "and not exceeds the allowed limit.");
+    }
+
+    if (posInt == -1) {
+      // This means "append to the array"
+      posInt = baseArray.length + 1;
+    }
+    boolean usePositivePos = posInt > 0;
+
+    if (usePositivePos) {
+      int newArrayLength = Math.max(baseArray.length + 1, posInt);
+
+      if (newArrayLength > MAX_ARRAY_LENGTH) {
+        throw new IndexOutOfBoundsException(
+            String.format(Locale.ROOT, "The new array length %s exceeds the allowed limit.",
+                newArrayLength));
+      }
+
+      Object[] newArray = new Object[newArrayLength];
+
+      int posIndex = posInt - 1;
+      if (posIndex < baseArray.length) {
+        System.arraycopy(baseArray, 0, newArray, 0, posIndex);
+        newArray[posIndex] = val;
+        System.arraycopy(baseArray, posIndex, newArray, posIndex + 1, baseArray.length - posIndex);
+      } else {
+        System.arraycopy(baseArray, 0, newArray, 0, baseArray.length);
+        newArray[posIndex] = val;
+      }
+
+      return Arrays.asList(newArray);
+    } else {
+      // 1-based index.
+      // The behavior of this function was changed in Spark 3.4.0.
+      // https://issues.apache.org/jira/browse/SPARK-44840
+      int posIndex = posInt + 1;
+
+      boolean newPosExtendsArrayLeft = baseArray.length + posIndex < 0;
+
+      if (newPosExtendsArrayLeft) {
+        // special case, if the new position is negative but larger than the current array size
+        // place the new item at start of array, place the current array contents at the end
+        // and fill the newly created array elements in middle with a null
+        int newArrayLength = -posIndex + 1;
+
+        if (newArrayLength > MAX_ARRAY_LENGTH) {
+          throw new IndexOutOfBoundsException(
+              String.format(Locale.ROOT, "The new array length %s exceeds the allowed limit.",
+                  newArrayLength));
+        }
+
+        Object[] newArray = new Object[newArrayLength];
+        System.arraycopy(baseArray, 0, newArray, Math.abs(posIndex + baseArray.length) + 1,
+            baseArray.length);
+        newArray[0] = val;
+
+        return Arrays.asList(newArray);
+      } else {
+        posIndex = posIndex + baseArray.length;
+
+        int newArrayLength = Math.max(baseArray.length + 1, posIndex + 1);
+
+        if (newArrayLength > MAX_ARRAY_LENGTH) {
+          throw new IndexOutOfBoundsException(
+              String.format(Locale.ROOT, "The new array length %s exceeds the allowed limit.",
+                  newArrayLength));
+        }
+
+        Object[] newArray = new Object[newArrayLength];
+
+        if (posIndex < baseArray.length) {
+          System.arraycopy(baseArray, 0, newArray, 0, posIndex);
+          newArray[posIndex] = val;
+          System.arraycopy(baseArray, posIndex, newArray, posIndex + 1,
+              baseArray.length - posIndex);
+        } else {
+          System.arraycopy(baseArray, 0, newArray, 0, baseArray.length);
+          newArray[posIndex] = val;
+        }
+
+        return Arrays.asList(newArray);
+      }
+    }
+  }
+
+  /** Support the ARRAY_INTERSECT function. */
+  public static List arrayIntersect(List list1, List list2) {
+    final Set<@Nullable Object> remaining = toDeepEqualityHashSet(list2);
+    final List<@Nullable Object> result = new ArrayList<>();
+    for (Object element : list1) {
+      if (remaining.remove(wrapForDeepEquality(element))) {
+        result.add(element);
+      }
+    }
+    return result;
+  }
+
+  /** Support the ARRAY_UNION function. */
+  public static List arrayUnion(List list1, List list2) {
+    final Set<@Nullable Object> result = toDeepEqualityLinkedHashSet(list1);
+    for (Object element : list2) {
+      result.add(wrapForDeepEquality(element));
+    }
+    return unwrapDeepEqualitySet(result);
+  }
+
+  /** Creates a set using deep equality, preserving element encounter order. */
+  private static Set<@Nullable Object> toDeepEqualityLinkedHashSet(List<?> list) {
+    return toDeepEqualitySet(list, LinkedHashSet::new);
+  }
+
+  /** Creates a hash set using deep equality. */
+  private static Set<@Nullable Object> toDeepEqualityHashSet(List<?> list) {
+    return toDeepEqualitySet(list, HashSet::new);
+  }
+
+  /** Creates a set using deep equality and the supplied factory. */
+  private static Set<@Nullable Object> toDeepEqualitySet(List<?> list,
+      Supplier<? extends Set<@Nullable Object>> setSupplier) {
+    final Set<@Nullable Object> set = setSupplier.get();
+    for (Object value : list) {
+      set.add(wrapForDeepEquality(value));
+    }
+    return set;
+  }
+
+  /** Counts element occurrences using deep equality. */
+  private static Map<@Nullable Object, Integer> toDeepEqualityCounts(List<?> list) {
+    final Map<@Nullable Object, Integer> counts = new HashMap<>();
+    for (Object value : list) {
+      counts.merge(wrapForDeepEquality(value), 1, Integer::sum);
+    }
+    return counts;
+  }
+
+  /** Wraps composite values, which may contain ROW values, but leaves scalar
+   * values and null unchanged. */
+  private static @Nullable Object wrapForDeepEquality(@Nullable Object value) {
+    if (value == null) {
+      return null;
+    } else if (value instanceof List || value instanceof Map || value.getClass().isArray()) {
+      return new DeepEqualityWrapper(value);
+    }
+    return value;
+  }
+
+  /** Creates a list of the set's elements in iteration order, replacing
+   * deep-equality wrappers with their original values. */
+  private static List<@Nullable Object> unwrapDeepEqualitySet(Set<@Nullable Object> set) {
+    final List<@Nullable Object> values = new ArrayList<>(set.size());
+    for (Object element : set) {
+      values.add(element instanceof DeepEqualityWrapper
+          ? ((DeepEqualityWrapper) element).value : element);
+    }
+    return values;
+  }
+
+  /** A wrapper providing deep equality and hashing for composite values.
+   * Assumes values are immutable. */
+  private static final class DeepEqualityWrapper {
+    private final Object value;
+    // Benign races may compute the same hash more than once.
+    private int hashCode;
+
+    private DeepEqualityWrapper(Object value) {
+      this.value = value;
+    }
+
+    @Override public boolean equals(@Nullable Object obj) {
+      return this == obj
+          || obj instanceof DeepEqualityWrapper
+          && Functions.deepEquals(value, ((DeepEqualityWrapper) obj).value);
+    }
+
+    @Override public int hashCode() {
+      int hash = hashCode;
+      if (hash == 0) {
+        hash = Functions.deepHashCode(value);
+        // Zero means not yet computed; cache a computed zero as 1 to avoid
+        // recomputing it on every call.
+        if (hash == 0) {
+          hash = 1;
+        }
+        hashCode = hash;
+      }
+      return hash;
+    }
+  }
+
+  /** Transforms a list, applying a function to each element. */
+  public static <F, T> List<T> transform(List<? extends F> list,
+      Function1<? super F, ? extends T> function) {
+    return new TransformingList<>(list, function);
+  }
+
+  /** List that returns the same number of elements as a backing list,
+   * applying a transformation function to each one.
+   *
+   * @param <F> Element type of backing list
+   * @param <T> Element type of this list
+   */
+  private static class TransformingList<F, T> extends AbstractList<T> {
+    private final Function1<? super F, ? extends T> function;
+    private final List<? extends F> list;
+
+    TransformingList(List<? extends F> list, Function1<? super F, ? extends T> function) {
+      this.function = function;
+      this.list = list;
+    }
+
+    @Override public T get(int i) {
+      return function.apply(list.get(i));
+    }
+
+    @Override public int size() {
+      return list.size();
+    }
+
+    @Override public Iterator<T> iterator() {
+      return listIterator();
+    }
+  }
+
+  /** Support the SORT_ARRAY function. */
+  public static List sortArray(List list, boolean ascending) {
+    final Comparator<@Nullable Object> naturalComparator =
+        (a, b) -> compareNullable(a, b, "SORT_ARRAY");
+    final Comparator<@Nullable Object> comparator = ascending
+        ? Comparator.nullsFirst(naturalComparator)
+        : Comparator.nullsLast(naturalComparator.reversed());
+    list.sort(comparator);
+    return list;
+  }
+
+  /** Support the EXISTS(list, function1) function. */
+  public static @Nullable Boolean exists(List list, Function1<Object, Boolean> function1) {
+    return nullableExists(list, function1);
+  }
+
+  /** Support the EXISTS(list, predicate1) function. */
+  public static Boolean exists(List list, Predicate1 predicate1) {
+    for (Object element : list) {
+      boolean ret = predicate1.apply(element);
+      if (ret) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Support the MAP_CONCAT function. */
+  public static Map mapConcat(Map... maps) {
+    final Map result = new LinkedHashMap();
+    Arrays.stream(maps).forEach(result::putAll);
+    return result;
+  }
+
+  /** Support the MAP_ENTRIES function. */
+  public static List mapEntries(Map<Object, Object> map) {
+    final List result = new ArrayList(map.size());
+    for (Map.Entry<Object, Object> entry : map.entrySet()) {
+      if (entry.getKey() == null) {
+        throw RESOURCE.illegalMapEntriesWithNullKey().ex();
+      }
+      result.add(Arrays.asList(entry.getKey(), entry.getValue()));
+    }
+    return result;
+  }
+
+  /** Support the MAP_KEYS function. */
+  public static List mapKeys(Map map) {
+    try {
+      return ImmutableList.copyOf(map.keySet());
+    } catch (NullPointerException e) {
+      throw RESOURCE.illegalMapKeysWithNullKey().ex();
+    }
+  }
+
+  /** Support the MAP_VALUES function. */
+  public static List mapValues(Map map) {
+    if (map.containsKey(null)) {
+      throw RESOURCE.illegalMapValuesWithNullKey().ex();
+    }
+    return new ArrayList<>(map.values());
+  }
+
+  /** Support the MAP_CONTAINS_KEY function. */
+  public static Boolean mapContainsKey(Map map, Object key) {
+    return map.containsKey(key);
+  }
+
+  /** Support the MAP_FROM_ARRAYS function. */
+  public static Map mapFromArrays(List keysArray, List valuesArray) {
+    if (keysArray.size() != valuesArray.size()) {
+      throw RESOURCE.illegalArgumentsInMapFromArraysFunc(keysArray.size(), valuesArray.size()).ex();
+    }
+    final Map map = new LinkedHashMap<>();
+    for (int i = 0; i < keysArray.size(); i++) {
+      map.put(keysArray.get(i), valuesArray.get(i));
+    }
+    return map;
+  }
+
+  /** Support the MAP_FROM_ENTRIES function. */
+  public static @Nullable Map mapFromEntries(List entries) {
+    final Map map = new LinkedHashMap<>();
+    for (Object entry : entries) {
+      if (entry == null) {
+        return null;
+      }
+      map.put(structAccess(entry, 0, null), structAccess(entry, 1, null));
+    }
+    return map;
+  }
+
+  /** Support the MAP function.
+   *
+   * <p>odd-indexed elements are keys and even-indexed elements are values.
+   */
+  public static Map map(Object... args) {
+    final Map map = new LinkedHashMap<>();
+    for (int i = 0; i < args.length; i += 2) {
+      Object key = args[i];
+      Object value = args[i + 1];
+      map.put(key, value);
+    }
+    return map;
+  }
+
+  /** Combines multiple query result lists into rows for the Combine operator.
+   *
+   * <p>Each input list contains maps representing rows from a query.
+   * The output is a list of Object arrays, where each array is a row
+   * with one element per query. The number of output rows equals the
+   * maximum size across all input lists. Shorter lists are padded with nulls.
+   *
+   * @param queryLists array of lists, one per query
+   * @return list of Object arrays representing combined rows
+   */
+  public static List<@Nullable Object[]> combineQueryResults(List[] queryLists) {
+    // Find the maximum row count across all queries
+    int maxRows = 0;
+    for (List list : queryLists) {
+      if (list.size() > maxRows) {
+        maxRows = list.size();
+      }
+    }
+
+    // Build the result rows
+    List<@Nullable Object[]> result = new ArrayList<>(maxRows);
+    for (int rowIdx = 0; rowIdx < maxRows; rowIdx++) {
+      @Nullable Object[] row = new Object[queryLists.length];
+      for (int queryIdx = 0; queryIdx < queryLists.length; queryIdx++) {
+        List queryList = queryLists[queryIdx];
+        if (rowIdx < queryList.size()) {
+          row[queryIdx] = queryList.get(rowIdx);
+        } else {
+          row[queryIdx] = null;
+        }
+      }
+      result.add(row);
+    }
+
+    return result;
+  }
+
+  /** Support the STR_TO_MAP function. */
+  public static Map strToMap(String string, String stringDelimiter, String keyValueDelimiter) {
+    final Map map = new LinkedHashMap();
+    final String[] keyValues = string.split(stringDelimiter, -1);
+    for (String s : keyValues) {
+      String[] keyValueArray = s.split(keyValueDelimiter, 2);
+      String key = keyValueArray[0];
+      String value = keyValueArray.length < 2
+          ? null
+          : keyValueArray[1];
+      map.put(key, value);
+    }
+    return map;
+  }
+
+  /** Support the SUBSTRING_INDEX function. */
+  public static String substringIndex(String string, String delimiter, int count) {
+    if (string.isEmpty() || count == 0) {
+      return "";
+    }
+    if (count > 0) {
+      int idx = -1;
+      while (count > 0) {
+        idx = string.indexOf(delimiter, idx + 1);
+        if (idx >= 0) {
+          count--;
+        } else {
+          // can not find enough delim
+          return string;
+        }
+      }
+      if (idx == 0) {
+        return "";
+      }
+      return string.substring(0, idx);
+    } else {
+      int idx = string.length() - delimiter.length() + 1;
+      count = -count;
+      while (count > 0) {
+        idx = rfind(string, delimiter, idx - 1);
+        if (idx >= 0) {
+          count--;
+        } else {
+          return string;
+        }
+      }
+      if (idx + delimiter.length() == string.length()) {
+        return "";
+      }
+      return string.substring(idx + delimiter.length());
+    }
+  }
+
+  /** Find the string from right to left. */
+  private static int rfind(String string, String delim, int start) {
+    return string.lastIndexOf(delim, start);
   }
 
   /** Support the SLICE function. */
