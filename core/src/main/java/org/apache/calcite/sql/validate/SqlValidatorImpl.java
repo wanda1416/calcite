@@ -144,6 +144,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.BiFunction;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
@@ -2724,6 +2726,28 @@ public class SqlValidatorImpl implements SqlValidatorWithHints {
         true);
   }
 
+  /** Returns the first call in an expression that matches a predicate,
+   * or null; does not look into sub-queries. */
+  private static @Nullable SqlCall findCallOutsideQueries(SqlNode node,
+      Predicate<SqlCall> predicate) {
+    try {
+      node.accept(new SqlBasicVisitor<Void>() {
+        @Override public @Nullable Void visit(SqlCall call) {
+          if (predicate.test(call)) {
+            throw new Util.FoundOne(call);
+          }
+          if (call.isA(SqlKind.QUERY)) {
+            return null;
+          }
+          return super.visit(call);
+        }
+      });
+      return null;
+    } catch (Util.FoundOne e) {
+      return (SqlCall) requireNonNull(e.getNode());
+    }
+  }
+
   /**
    * Registers a query in a parent scope.
    *
@@ -2866,6 +2890,30 @@ public class SqlValidatorImpl implements SqlValidatorWithHints {
           node,
           alias,
           forceNullable);
+      break;
+
+    case LAMBDA:
+      call = (SqlCall) node;
+      SqlLambdaScope lambdaScope =
+          new SqlLambdaScope(parentScope, (SqlLambda) call);
+      scopes.put(call, lambdaScope);
+      final LambdaNamespace lambdaNamespace =
+          new LambdaNamespace(this, (SqlLambda) call, node);
+      registerNamespace(
+          usingScope,
+          alias,
+          lambdaNamespace,
+          forceNullable);
+      // Reject sub-queries before they are registered and validated
+      final SqlCall query =
+          findCallOutsideQueries(((SqlLambda) call).getExpression(),
+              c -> c.isA(SqlKind.QUERY));
+      if (query != null) {
+        throw newValidationError(query, RESOURCE.subQueryIllegalInLambda());
+      }
+      // Register sub-queries inside the body under lambdaScope, so that
+      // nested lambdas can resolve outer lambda parameters.
+      registerOperandSubQueries(lambdaScope, call, 1);
       break;
 
     case WITH:
@@ -5810,6 +5858,54 @@ public class SqlValidatorImpl implements SqlValidatorWithHints {
     inWindow = false;
   }
 
+  @Override public void validateLambda(SqlLambda lambdaExpr) {
+    final SqlLambdaScope scope = (SqlLambdaScope) scopes.get(lambdaExpr);
+    requireNonNull(scope, "scope");
+    final LambdaNamespace ns =
+        getNamespaceOrThrow(lambdaExpr).unwrap(LambdaNamespace.class);
+
+    // Check for duplicate lambda parameter names
+    final SqlNameMatcher nameMatcher = catalogReader.nameMatcher();
+    final Set<String> seen = nameMatcher.createSet();
+    for (SqlNode param : lambdaExpr.getParameters()) {
+      final String name = ((SqlIdentifier) param).getSimple();
+      if (!seen.add(name)) {
+        throw newValidationError(param,
+            RESOURCE.duplicateLambdaParameter(name));
+      }
+      // Check against enclosing lambda scopes: x -> ... x -> ...
+      SqlValidatorScope parentScope = scope.getParent();
+      while (parentScope instanceof DelegatingScope) {
+        if (parentScope instanceof SqlLambdaScope) {
+          final SqlLambdaScope parentLambda = (SqlLambdaScope) parentScope;
+          if (parentLambda.getParameterTypes().keySet().stream()
+              .anyMatch(p -> nameMatcher.matches(p, name))) {
+            throw newValidationError(param,
+                RESOURCE.duplicateLambdaParameter(name));
+          }
+        }
+        parentScope = ((DelegatingScope) parentScope).getParent();
+      }
+    }
+
+    // A lambda body is evaluated for each element, not for a group of rows
+    final SqlCall agg =
+        findCallOutsideQueries(lambdaExpr.getExpression(),
+            call -> call.getKind() == SqlKind.OVER
+                || call.getOperator().isAggregator());
+    if (agg != null) {
+      throw newValidationError(agg,
+          agg.getKind() == SqlKind.OVER
+              ? RESOURCE.windowedAggregateIllegalInLambda()
+              : RESOURCE.aggregateIllegalInLambda());
+    }
+
+    deriveType(scope, lambdaExpr.getExpression());
+    RelDataType type = deriveTypeImpl(scope, lambdaExpr);
+    setValidatedNodeType(lambdaExpr, type);
+    ns.setType(type);
+  }
+
   @Override public void validateMatchRecognize(SqlCall call) {
     final SqlMatchRecognize matchRecognize = (SqlMatchRecognize) call;
     final MatchRecognizeScope scope =
@@ -6977,6 +7073,19 @@ public class SqlValidatorImpl implements SqlValidatorWithHints {
     }
 
     @Override public SqlNode visit(SqlIdentifier id) {
+      // A lambda can read only parameters; an expanded copy of a lambda
+      // has no scope. A parameter can have the same name as a select item.
+      if (getScope() instanceof SqlLambdaScope) {
+        for (SqlValidatorScope s = getScope(); s instanceof SqlLambdaScope;
+            s = ((SqlLambdaScope) s).getParent()) {
+          if (((SqlLambdaScope) s).isParameter(id)) {
+            return id;
+          }
+        }
+        throw newValidationError(id,
+            RESOURCE.lambdaInOrderByCanReadOnlyParameters());
+      }
+
       // Aliases, e.g. 'select a as x, b from t order by x'.
       if (id.isSimple()
           && config.conformance().isSortByAlias()) {

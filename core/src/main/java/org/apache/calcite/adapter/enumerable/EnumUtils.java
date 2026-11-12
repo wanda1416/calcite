@@ -765,9 +765,11 @@ public class EnumUtils {
       RexNode condition) {
     final BlockBuilder builder = new BlockBuilder();
     final ParameterExpression left_ =
-        Expressions.parameter(leftPhysType.getJavaRowType(), "left");
+        Expressions.parameter(Modifier.FINAL,
+            leftPhysType.getJavaRowType(), "left");
     final ParameterExpression right_ =
-        Expressions.parameter(rightPhysType.getJavaRowType(), "right");
+        Expressions.parameter(Modifier.FINAL,
+            rightPhysType.getJavaRowType(), "right");
     final RexProgramBuilder program =
         new RexProgramBuilder(
             implementor.getTypeFactory().builder()

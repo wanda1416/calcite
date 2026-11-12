@@ -2169,6 +2169,49 @@ public class SqlToRelConverter {
     return null;
   }
 
+  /**
+   * Converts a lambda expression to a RexNode.
+   *
+   * @param bb   Blackboard
+   * @param node Lambda expression
+   * @return Relational expression
+   */
+  private RexNode convertLambda(Blackboard bb, SqlNode node) {
+    final SqlLambda call = (SqlLambda) node;
+    final SqlLambdaScope scope = (SqlLambdaScope) validator().getLambdaScope(call);
+
+    final Map<String, RexNode> nameToNodeMap = new HashMap<>();
+    // For nested lambdas, inherit the parent blackboard's nameToNodeMap so that
+    // the inner lambda can resolve references to outer lambda parameters.
+    // e.g., in x -> EXISTS(arr, y -> x + y = 4), the inner lambda's blackboard
+    // needs access to "X" from the outer lambda's nameToNodeMap.
+    if (bb.nameToNodeMap != null) {
+      nameToNodeMap.putAll(bb.nameToNodeMap);
+    }
+    final List<RexLambdaRef> parameters = new ArrayList<>(scope.getParameterTypes().size());
+    final Map<String, RelDataType> parameterTypes = scope.getParameterTypes();
+
+    int i = 0;
+    for (SqlNode p : call.getParameters()) {
+      final String name = p.toString();
+      final RexLambdaRef parameter =
+          new RexLambdaRef(i, name, requireNonNull(parameterTypes.get(name)));
+      parameters.add(parameter);
+      nameToNodeMap.put(name, parameter);
+      i++;
+    }
+
+    final Blackboard lambdaBb = createBlackboard(scope, nameToNodeMap, false);
+    lambdaBb.setRoot(castNonNull(bb.inputs), bb.root, false);
+    lambdaBb.inputScope = bb.inputScope;
+    // In an aggregate query, a GROUP BY expression in the lambda reads the
+    // Aggregate result
+    lambdaBb.agg = bb.agg;
+    replaceSubQueries(lambdaBb, call.getExpression(), RelOptUtil.Logic.TRUE_FALSE_UNKNOWN);
+    final RexNode expr = lambdaBb.convertExpression(call.getExpression());
+    return rexBuilder.makeLambdaCall(expr, parameters);
+  }
+
   private RexNode convertOver(Blackboard bb, SqlNode node) {
     SqlCall call = (SqlCall) node;
     SqlCall aggCall = call.operand(0);
@@ -4705,7 +4748,14 @@ public class SqlToRelConverter {
      * Collection of {@link RelNode} objects which correspond to a SELECT
      * statement.
      */
-    public final @Nullable SqlValidatorScope scope;
+    public final SqlValidatorScope scope;
+
+    /**
+     * Scope of the query that owns {@link #inputs}. It is {@link #scope},
+     * except in the blackboard of a lambda, which has the inputs of the
+     * blackboard that contains the lambda.
+     */
+    SqlValidatorScope inputScope;
     private final @Nullable Map<String, RexNode> nameToNodeMap;
     public @Nullable RelNode root;
     private @Nullable List<RelNode> inputs;
@@ -4764,7 +4814,8 @@ public class SqlToRelConverter {
      */
     protected Blackboard(@Nullable SqlValidatorScope scope,
         @Nullable Map<String, RexNode> nameToNodeMap, boolean top) {
-      this.scope = scope;
+      this.scope = requireNonNull(scope, "scope");
+      this.inputScope = this.scope;
       this.nameToNodeMap = nameToNodeMap;
       this.top = top;
     }
@@ -5015,7 +5066,7 @@ public class SqlToRelConverter {
       // We assume that the order of the from clause items has been
       // preserved.
       final SqlValidatorScope ancestorScope = resolve.scope;
-      boolean isParent = ancestorScope != scope;
+      final boolean isParent = ancestorScope != inputScope;
       if ((inputs != null) && !isParent) {
         final LookupContext rels =
             new LookupContext(this, inputs, systemFieldList.size());

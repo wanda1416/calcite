@@ -3918,6 +3918,103 @@ SqlNode Expression3(ExprContext exprContext) :
     }
 }
 
+/**
+ * Parses a parenthesized comma list for ROW constructors.
+ * Supports optional field-name aliases: {@code (expr AS fieldName, ...)}.
+ * Populates {@code nameList} with field names (or null for unnamed fields).
+ * Returns a SqlNodeList of the value expressions.
+ */
+SqlNodeList RowArgListWithParens(ExprContext exprContext, List<SqlNode> nameList) :
+{
+    SqlNode e;
+    SqlIdentifier alias;
+    final List<SqlNode> exprList = new ArrayList<SqlNode>();
+    ExprContext firstExprContext = exprContext;
+    final Span s;
+}
+{
+    <LPAREN>
+    {
+        s = span();
+        switch (exprContext) {
+        case ACCEPT_SUB_QUERY:
+            firstExprContext = ExprContext.ACCEPT_NONCURSOR;
+            break;
+        case ACCEPT_CURSOR:
+            firstExprContext = ExprContext.ACCEPT_ALL;
+            break;
+        }
+    }
+    (
+        e = OrderedQueryOrExpr(firstExprContext)
+        (
+            <AS> alias = SimpleIdentifier()
+            { exprList.add(e); nameList.add(SqlLiteral.createCharString(alias.getSimple(), alias.getParserPosition())); }
+        |
+            { exprList.add(e); nameList.add(null); }
+        )
+    |
+        e = Default() { exprList.add(e); nameList.add(null); }
+    )
+    (
+        <COMMA>
+        {
+            checkNonQueryExpression(exprContext);
+        }
+        (
+            e = Expression(exprContext)
+            (
+                <AS> alias = SimpleIdentifier()
+                { exprList.add(e); nameList.add(SqlLiteral.createCharString(alias.getSimple(), alias.getParserPosition())); }
+            |
+                { exprList.add(e); nameList.add(null); }
+            )
+        |
+            e = Default() { exprList.add(e); nameList.add(null); }
+        )
+    )*
+    <RPAREN>
+    { return new SqlNodeList(exprList, s.end(this)); }
+}
+
+/**
+ * Parses a lambda expression.
+ */
+SqlNode LambdaExpression() :
+{
+    final SqlNodeList parameters;
+    final SqlNode expression;
+    final Span s;
+}
+{
+    parameters = SimpleIdentifierOrListOrEmpty()
+    <LAMBDA> { s = span(); }
+    // The validator rejects sub-queries in the body
+    expression = Expression(ExprContext.ACCEPT_SUB_QUERY)
+    {
+        return new SqlLambda(s.end(this), parameters, expression);
+    }
+}
+
+/**
+ * List of simple identifiers in parentheses or empty parentheses or one simple identifier.
+ * <ul>Examples:
+ * <li>{@code ()}
+ * <li>{@code DEPTNO}
+ * <li>{@code (EMPNO, DEPTNO)}
+ * </ul>
+ */
+SqlNodeList SimpleIdentifierOrListOrEmpty() :
+{
+    SqlNodeList list;
+}
+{
+    LOOKAHEAD(2)
+    <LPAREN> <RPAREN> { return SqlNodeList.EMPTY; }
+|
+    list = SimpleIdentifierOrList() { return list; }
+}
+
 SqlOperator periodOperator() :
 {
 }
